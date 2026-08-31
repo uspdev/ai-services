@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\BibliografiaController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -17,7 +18,11 @@ Route::get('/', function () {
     return view('welcome');
 });
 
+Route::middleware(['auth'])->group(function () {
+    Route::match(['get', 'post'], 'bibliografia', [BibliografiaController::class, 'processar'])->name('bibliografia.processar');
+});
+
 // Permite usar Gate::check('user')na view 404
-Route::fallback(function(){
+Route::fallback(function () {
     return view('errors.404');
- });
+});

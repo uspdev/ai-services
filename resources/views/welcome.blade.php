@@ -3,19 +3,11 @@
 @section('content')
   <div class="card">
     <div class="card-header h4">
-      Arquivo README.md
+      Serviços
     </div>
     <div class="card-body">
-      {!! md2html(file_get_contents(base_path('README.md'))) !!}
+      <a href="bibliografia">Formatação de referências bibliográficas</a>
     </div>
   </div>
 
-  <div class="card">
-    <div class="card-header h4">
-      Conteúdo do laravel-usp-theme (@@parent)
-    </div>
-    <div class="card-body">
-      @parent
-    </div>
-  </div>
 @endsection

@@ -18,16 +18,35 @@
   @parent
 @endsection
 
+@stack('styles')
+
 @section('styles')
   @parent
   <style>
-    /*seus estilos*/
+    .badge-outline-primary {
+      color: #007bff;
+      background-color: transparent;
+      border: 1px solid #007bff;
+      padding: 0.25em 0.4em;
+    }
+
+    .badge-outline-info {
+      color: #17a2b8;
+      background-color: transparent;
+      border: 1px solid #17a2b8;
+      padding: 0.25em 0.4em;
+    }
+
+    /* gap-2 do BS5 */
+    .gap-2 {
+      gap: 0.5rem;
+    }
   </style>
 @endsection
+@parent
 
-@section('javascripts_bottom')
-  @parent
-  <script>
-    // Seu código .js
-  </script>
-@endsection
+{{-- blocos da aplicação --}}
+@include('blocos.textarea-autoexpand')
+@include('blocos.usptheme-contador')
+
+@stack('scripts')
