@@ -43,7 +43,6 @@
     }
   </style>
 @endsection
-@parent
 
 {{-- blocos da aplicação --}}
 @include('blocos.textarea-autoexpand')
