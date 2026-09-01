@@ -4,7 +4,7 @@
   <div class="card">
     <div class="card-header card-header-sticky">
       <div class="h4 mb-0">
-        Formatação de referências bibliográficas
+        Assistente bibliográfico
         @include('bibliografia.partials.ajuda', ['button' => 1])
       </div>
       @include('bibliografia.partials.ajuda')
@@ -49,6 +49,7 @@
 
           <div class="col-md-4">
             <label class="ml-2" for="explicacao">Explicações e qualidade da entrada</label>
+            @include('bibliografia.partials.ajuda-abreviacoes')
             <div id="explicacao" class="form-control explicacao">
               @foreach ($explicacoes as $index => $texto)
                 @php
@@ -76,7 +77,7 @@
         </div>
       @endif
 
-      {{-- @if ($estatisticas ?? [])
+      @if ($estatisticas ?? [])
         <hr>
         <div class="small text-muted">
           <pre>Estatísticas:
@@ -85,7 +86,7 @@
             {{ $prompt ?? '' }}
         </pre>
         </div>
-      @endif --}}
+      @endif
 
     </div>
   @endsection

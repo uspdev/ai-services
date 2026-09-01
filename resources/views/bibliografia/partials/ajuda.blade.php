@@ -4,7 +4,7 @@
     Como utilizar
   </button>
 @else
-  <div id="ajuda-bibliografia" class="alert alert-info collapse">
+  <div id="ajuda-bibliografia" class="alert alert-info collapse my-1">
 
     <button type="button" class="close" id="btn-fechar-ajuda" aria-label="Fechar">
       <span aria-hidden="true">&times;</span>
