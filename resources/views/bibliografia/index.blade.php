@@ -77,7 +77,7 @@
         </div>
       @endif
 
-      @if ($estatisticas ?? [])
+      {{-- @if ($estatisticas ?? [])
         <hr>
         <div class="small text-muted">
           <pre>Estatísticas:
@@ -86,7 +86,7 @@
             {{ $prompt ?? '' }}
         </pre>
         </div>
-      @endif
+      @endif --}}
 
     </div>
   @endsection
