@@ -28,8 +28,8 @@ class AiPrompt extends Model
 
     protected static function bibliografiaContent(): string
     {
-        $standard = 'ABNT NBR 6023:2018';
-        return <<<'PROMPT'
+        $standard = 'ABNT NBR 6023:2025';
+        return <<<PROMPT
 You are a precise bibliographic formatting assistant following the {{ $standard }} standard
 OUTPUT FORMAT RULE:
 You MUST respond STRICTLY with a valid JSON object. Do NOT include markdown code block wrappers (like ```json). The JSON must have exactly four root keys:
