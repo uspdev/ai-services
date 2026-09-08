@@ -18,19 +18,35 @@ class AiPrompt extends Model
     public static function get(string $slug): string
     {
         return match ($slug) {
-            'bibliografia' => self::bibliografiaContent(),
-            'traducao' => '',
+            'bibliografia' => self::bibliografiaContent(null),
+            'ementa' => self::ementaContent(),
             default => throw new InvalidArgumentException(
                 "Prompt '{$slug}' não encontrado."
             ),
         };
     }
 
-    protected static function bibliografiaContent(): string
+    public static function getBibliografiaStandards()
     {
-        $standard = 'ABNT NBR 6023:2025';
+        return [
+            'ABNT NBR 6023:2025',
+            'APA 7th Edition',
+            // 'Chicago Manual of Style 17th Edition',
+            // 'MLA 9th Edition',
+            // 'Harvard Referencing Style',
+            'Vancouver Style',
+            'IEEE Citation Style',
+            // 'Turabian 9th Edition',
+            // 'AMA Manual of Style 11th Edition',
+            // 'CSE (Council of Science Editors) Style'
+        ];
+    }
+
+    protected static function bibliografiaContent(?array $params = []): string
+    {
+        $standard = empty($params['standard']) ? 'ABNT NBR 6023:2025' : $params['standard'];
         return <<<PROMPT
-You are a precise bibliographic formatting assistant following the $standard standard
+You are a precise bibliographic formatting assistant following the {$standard} standard
 OUTPUT FORMAT RULE:
 You MUST respond STRICTLY with a valid JSON object. Do NOT include markdown code block wrappers (like ```json). The JSON must have exactly four root keys:
 1. "referencias": An array of strings containing ONLY the corrected, standardized references.
@@ -52,7 +68,7 @@ FORMATTING RULES:
 - LINE BREAK HANDLING: Treat line breaks within the same reference as unintended text wraps. Merge broken lines into a single continuous text string. Do NOT split a reference into multiple entries because of line breaks.
 - DO NOT GUESS OR INFER UNKNOWN YEARS: If the publication year is missing, use '[s.d.]' or omit the date field. Never invent years.
 - WEBSITES & URLS: Format URLs enclosed in '<>'. If 'Acesso em:' is not explicitly provided in the input, omit it entirely. NEVER output 'Acesso em: [s.d.]'.
-- BOOK CHAPTERS: Format according to the specified {{ $standard }} standard. Do NOT use bold or other visual emphasis for the book title or chapter title.
+- BOOK CHAPTERS: Format according to the specified {$standard} standard. Do NOT use bold or other visual emphasis for the book title or chapter title.
 - REMOVE UNWANTED CHARACTERS: Remove pilcrows (¶), Markdown markers, HTML tags, and other formatting artifacts.
 - CORRECTIONS: Correct obvious typographical errors in words, names, titles, publishers, and other bibliographic elements when the intended information is clear.
 - PRESERVE INFORMATION: Do not remove valid bibliographic information merely to simplify the reference.
@@ -63,7 +79,7 @@ FORMATTING RULES:
 PROMPT;
     }
 
-    protected static function revisaoGramaticalContent(?string $disciplina = null, ?string $area = null): string
+    protected static function ementaContent(?string $disciplina = null, ?string $area = null): string
     {
         // Constrói o bloco de contexto apenas se houver dados válidos
         $contexto = '';
@@ -72,43 +88,104 @@ PROMPT;
         $infoArea = ($area && $area !== 'null') ? trim($area) : null;
 
         if ($infoDisciplina || $infoArea) {
-            $contexto = "CONTEXTO DO TEXTO AVALIADO:\n";
+            $contexto = "";
             if ($infoDisciplina) {
-                $contexto .= "- Disciplina: {$infoDisciplina}\n";
+                $contexto .= "- Disciplina: {$infoDisciplina}.\n";
             }
             if ($infoArea) {
-                $contexto .= "- Área do Conhecimento: {$infoArea}\n";
+                $contexto .= "- Área do Conhecimento: {$infoArea}.\n";
             }
             $contexto .= "\nUtilize este contexto para alinhar a terminologia técnica, o nível acadêmico e o jargão específico da área.\n";
         }
 
         return <<<PROMPT
-Você é um Revisor Acadêmico e Pedagógico Especialista em Design Curricular, cobrindo todas as áreas do conhecimento (Exatas, Humanas, Biológicas, Sociais Aplicadas e Engenharias).
+You are an Academic and Curriculum Reviewer specializing in curriculum design across all fields, including STEM, Humanities, Life Sciences, Social Sciences, and Engineering.
 
-Sua função é avaliar, diagnosticar e revisar ementas, programas de disciplina e textos pedagógicos/acadêmicos enviados pelo usuário.
+Review course descriptions, learning objectives, syllabi, and academic/pedagogical texts in the context of the University of São Paulo (USP).
 
-{$contexto}
-Sua resposta DEVE ser estruturada rigorosamente nas 3 seções a seguir:
+INPUT:
+The user may provide:
 
-1. SCORE DE QUALIDADE E NECESSIDADE DE ALTERAÇÕES
-   - Apresente um Score de 0 a 100 baseado na qualidade atual e na quantidade/severidade de ajustes necessários no texto original:
-     * 90–100: Excelente (Ajustes mínimos ou nulos; apenas retoques pontuais).
-     * 70–89: Bom (Pequenas correções gramaticais, de formatação ou de clareza).
-     * 50–69: Regular (Erros gramaticais evidentes, falhas de terminologia ou redundâncias).
-     * < 50: Insuficiente (Ajustes estruturais profundos, problemas graves de redação ou imprecisão técnica).
-   - Indique o Score e forneça um resumo executivo de 1 a 2 frases justificando a nota.
+1. Structured JSON with fields such as `ementa`, `objetivos`, and `conteudo_programatico`, optionally containing `pt` and `en`.
+2. Free text using labels such as Ementa/Course Description, Objetivos/Objectives, and Conteúdo Programático/Full Program, including Markdown or tag delimiters.
 
-2. ANÁLISE E EXPLICAÇÕES DETALHADAS
-   Apresente as correções necessárias organizadas em tópicos claros:
-   a) Gramática, Acentuação e Pontuação: Erros de ortografia, concordância, crase e padronização visual de pontuação (ex.: pontuação final dos itens).
-   b) Redação Acadêmica e Clareza Pedagógica: Problemas de estilo, prolixidade, redundâncias ou falta de paralelismo sintático.
-   c) Terminologia Técnica e Vocabulário de Campo: Imprecisões conceituais relativas à área do conhecimento do texto (seja em Português, Inglês ou outro idioma).
+Identify the Portuguese and English versions of each section:
 
-3. EMENTA / TEXTO REVISADO (VERSÃO FINAL)
-   - Apresente o texto final totalmente corrigido, polido e padronizado.
-   - Mantenha a estrutura original (ex.: lista numerada de tópicos) com pontuação e tipografia perfeitamente homogêneas, pronto para inclusão em um Projeto Pedagógico de Curso (PPC) ou Syllabus.
+- Ementa / Course Description
+- Objetivos / Objectives
+- Conteúdo Programático / Full Program
 
-Tom de voz: Neutro, profissional, direto e fundamentado nas boas práticas de redação acadêmica e design curricular.
+If an English section is missing, empty, or contains only its default heading, set its status to `ausente` and provide an accurate technical translation.
+If English is present, assess its technical and semantic equivalence to Portuguese and revise it when necessary.
+
+EVALUATION:
+
+1. QUALITY SCORE (0–100)
+
+- 90–100: Excellent; minimal or no changes.
+- 70–89: Good; minor grammar, formatting, or clarity issues.
+- 50–69: Fair; noticeable grammar, terminology, clarity, or redundancy issues.
+- Below 50: Insufficient; major structural, writing, or technical problems.
+
+Provide a 1–2 sentence justification.
+
+2. ANALYSIS
+
+Evaluate each language separately:
+
+Portuguese (`pt`):
+
+- Grammar, spelling, agreement, and punctuation.
+- Academic writing, pedagogical clarity, conciseness, redundancy, and syntactic parallelism.
+- Technical terminology and conceptual precision.
+
+English (`en`):
+
+- `status`: `presente` = complete; `parcial` = incomplete or missing parts; `ausente` = no meaningful English text.
+- Assess spelling, grammar, punctuation, academic tone, clarity, PT equivalence, and field-specific terminology.
+
+3. REVISION
+
+Provide final polished versions in Portuguese and English for all three sections. Ensure technical accuracy, consistency, homogeneous style, and suitability for inclusion in a PPC or syllabus.
+
+Use a neutral, professional, concise, and evidence-based academic tone.
+
+OUTPUT:
+Return ONLY a valid JSON object. No Markdown or text outside the JSON. Follow this exact schema:
+
+{
+  "score": {
+    "valor": 0,
+    "justificativa": "1–2 sentence executive summary justifying the score."
+  },
+  "explicacoes": {
+    "pt": {
+      "gramatica_acentuacao_pontuacao": "Portuguese grammar, spelling, agreement, and punctuation analysis.",
+      "redacao_academica_clareza_pedagogica": "Portuguese academic style, clarity, redundancy, conciseness, and parallelism analysis.",
+      "terminologia_tecnica": "Portuguese technical terminology and conceptual precision analysis."
+    },
+    "en": {
+      "status": "presente | parcial | ausente",
+      "gramatica_acentuacao_pontuacao": "English spelling, grammar, and punctuation analysis, or explanation if absent.",
+      "redacao_academica_clareza_pedagogica": "English academic tone, clarity, and equivalence with Portuguese.",
+      "terminologia_tecnica": "English technical terminology and field-specific vocabulary analysis."
+    }
+  },
+  "texto_revisado": {
+    "ementa": {
+      "pt": "Final revised Portuguese text.",
+      "en": "Final revised or translated English text."
+    },
+    "objetivos": {
+      "pt": "Final revised Portuguese text.",
+      "en": "Final revised or translated English text."
+    },
+    "conteudo_programatico": {
+      "pt": "Final revised Portuguese text.",
+      "en": "Final revised or translated English text."
+    }
+  }
+}
 PROMPT;
     }
 
@@ -137,6 +214,27 @@ PROMPT;
     }
 
     /**
+     * Renderiza a estrutura de mensagens passando o texto do system prompt diretamente.
+     *
+     * @param string $systemPrompt
+     * @param string $userContent
+     * @return array
+     */
+    public static function renderFromPrompt(string $systemPrompt, string $userContent): array
+    {
+        return [
+            [
+                'role' => 'system',
+                'content' => $systemPrompt,
+            ],
+            [
+                'role' => 'user',
+                'content' => $userContent,
+            ],
+        ];
+    }
+
+    /**
      * Retorna as instruções de sistema associadas a um prompt.
      *
      * @param string $slug Identificador do prompt.
@@ -144,10 +242,11 @@ PROMPT;
      *
      * @throws \InvalidArgumentException Quando o prompt informado não existir.
      */
-    public static function systemPrompt(string $slug): string
+    public static function systemPrompt(string $slug, ?array $params = []): string
     {
         return match ($slug) {
-            'bibliografia' => self::bibliografiaContent(),
+            'bibliografia' => self::bibliografiaContent($params),
+            'ementa' => self::ementaContent(),
 
             default => throw new InvalidArgumentException(
                 "Prompt '{$slug}' não encontrado."

@@ -5,19 +5,12 @@ namespace App\Http\Controllers;
 use App\Models\AiPrompt;
 use App\Services\AiService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class BibliografiaController extends Controller
 {
 
     public function __construct(private AiService $aiService) {}
-
-    /**
-     * Display a listing of the resource.
-     */
-    public function index()
-    {
-        return view('bibliografia.index', ['referencias' => '']);
-    }
 
     /**
      * Processa a lista de referências bibliográficas utilizando o serviço de IA.
@@ -31,8 +24,9 @@ class BibliografiaController extends Controller
      *
      * @throws \Illuminate\Validation\ValidationException Se a validação dos dados de entrada falhar.
      */
-    public function processar(Request $request)
+    public function bibliografia(Request $request)
     {
+        $standards = AiPrompt::getBibliografiaStandards();
         if ($request->isMethod('get')) {
             if ($request->wantsJson()) {
                 return response()->json([
@@ -41,27 +35,37 @@ class BibliografiaController extends Controller
                 ], 200);
             }
 
-            return view('bibliografia.index');
+            return view(
+                'bibliografia.index',
+                [
+                    'standards' => $standards,
+                ]
+            );
         }
 
         $request->validate([
-            'referencias' => ['required', 'string', 'max:10000'],
+            'message' => ['required', 'string', 'max:10000'],
+            'standard' => ['required','string',Rule::in($standards)
+            ],
         ]);
 
-        $referencias = $request->input('referencias');
+        $referencias = $request->input('message');
+        $standard = $request->input('standard');
 
-        $message = AiPrompt::render('bibliografia', $referencias);
-        $prompt = AiPrompt::systemPrompt('bibliografia');
+        $prompt = AiPrompt::systemPrompt('bibliografia', ['standard' => $standard]);
+        $message = AiPrompt::renderFromPrompt($prompt, $referencias);
         $resultadoRaw = $this->aiService->submit($message);
         $resultado = json_decode($resultadoRaw, true) ?? [];
 
         $data = [
-            'referencias'   => $request->referencias,
+            'referencias'   => $referencias,
             'respostas'     => $resultado['referencias'] ?? [],
             'explicacoes'   => $resultado['explicacoes'] ?? [],
             'confiancas'    => $resultado['confiancas'] ?? [],
             'estatisticas'  => $this->aiService->statistics(),
             'prompt'        => $prompt,
+            'standards'      => $standards,
+            'standard'      => $standard,
         ];
 
         if ($request->wantsJson()) {
@@ -71,12 +75,51 @@ class BibliografiaController extends Controller
         return view('bibliografia.index', $data);
     }
 
-    /**
-     * Show the form for creating a new resource.
-     */
-    public function create()
+
+    public function ementa(Request $request)
     {
-        //
+        if ($request->isMethod('get')) {
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => true,
+                    'mensagem' => 'Envie uma requisição POST com o campo "referencias" para processar.',
+                ], 200);
+            }
+
+            $standards = AiPrompt::getBibliografiaStandards();
+
+            return view('ementa.index', compact('standards'));
+        }
+
+        $request->validate([
+            'mensagem' => ['required', 'string', 'max:10000'],
+        ]);
+
+        $mensagem = $request->input('mensagem');
+
+        $message = AiPrompt::render('ementa', $mensagem);
+        $prompt = AiPrompt::systemPrompt('ementa');
+        $resultadoRaw = $this->aiService->submit($message);
+        $resultado = json_decode($resultadoRaw, true) ?? [];
+
+
+        // dd($resultado);
+
+        $data = [
+            'mensagem'   => $mensagem,
+            'resposta'     => $resultado['texto_revisado'] ?? [],
+            'explicacoes'   => $resultado['explicacoes'] ?? [],
+            'analiseIngles'   => $resultado['analise_ingles'] ?? [],
+            'score'    => $resultado['score'] ?? [],
+            'estatisticas'  => $this->aiService->statistics(),
+            'prompt'        => $prompt,
+        ];
+
+        if ($request->wantsJson()) {
+            return response()->json(['success' => true, 'data' => $data,], 200);
+        }
+
+        return view('ementa.index', $data);
     }
 
     /**

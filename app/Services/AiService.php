@@ -11,17 +11,24 @@ class AiService
     private string $url;
     private string $key;
     private string $model;
+    private int $cacheRetention;
 
     private ?array $statistics = null;
 
 
     public function __construct()
     {
-        $config = config('aiService.litellm');
+        $config = config('aiService');
+        $provider = $config['defaultProvider'];
+        $providerConfig = $config['providers'][$provider]
+            ?? throw new RuntimeException(
+                "Provedor de IA não configurado: {$provider}"
+            );
 
-        $this->url = rtrim($config['url'], '/');
-        $this->key = $config['key'];
-        $this->model = $config['model'];
+        $this->url = rtrim($providerConfig['url'], '/');
+        $this->key = $providerConfig['key'];
+        $this->model = $providerConfig['model'];
+        $this->cacheRetention = $config['cacheRetention'];
     }
 
     /**
@@ -42,11 +49,12 @@ class AiService
 
         $res = Cache::remember(
             $cacheKey,
-            now()->addDay(),
+            now()->addSeconds($this->cacheRetention),
             function () use ($message, &$wasCached, &$cachedAt) {
                 $wasCached = false;
                 $cachedAt = now()->toIso8601String();
                 $response = Http::withToken($this->key)
+                    ->timeout(60)
                     ->post(
                         $this->url . '/v1/chat/completions',
                         ['model' => $this->model, 'messages' => $message]
