@@ -21,6 +21,7 @@ Route::get('/', function () {
 
 Route::middleware(['auth'])->group(function () {
     Route::match(['get', 'post'], 'bibliografia', [BibliografiaController::class, 'index'])->name('bibliografia.index');
+    Route::get('bibliografia/dedalus', [BibliografiaController::class, 'dedalus'])->name('bibliografia.dedalus');
     Route::match(['get', 'post'], 'ementa', [EmentaController::class, 'index'])->name('ementa.index');
 });
 

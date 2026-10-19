@@ -256,8 +256,11 @@ class AiControllerTest extends TestCase
         $json->assertOk()->assertJsonPath('success', true)->assertJsonPath('data.estatisticas.cached', true);
 
         if ($route === 'bibliografia.index') {
-            $web->assertSee($result['referencias'][0]);
+            $web->assertSee($result['referencias'][0])
+                ->assertSee('Dedalus (EESC)');
             $json->assertJsonPath('data.respostas', $result['referencias'])
+                ->assertJsonPath('data.dedalus.0.query', 'Título')
+                ->assertJsonPath('data.dedalus.0.library', 'EESC')
                 ->assertJsonPath('data.standard', $input['standard'])
                 ->assertJsonPath('data.prompt', AiPrompt::systemPrompt('bibliografia', ['standard' => $input['standard']]));
         } else {

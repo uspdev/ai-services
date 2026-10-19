@@ -8,9 +8,10 @@ Este documento detalha o funcionamento, os contratos de dados, as validações e
 - [2. Rota, controller e validação de entrada](#2-rota-controller-e-validação-de-entrada)
 - [3. Agente de bibliografia (`BibliografiaAgent`)](#3-agente-de-bibliografia-bibliografiaagent)
 - [4. Schema estruturado e validação de correspondência](#4-schema-estruturado-e-validação-de-correspondência)
-- [5. Contrato público (Web e JSON)](#5-contrato-público-web-e-json)
-- [6. Apresentação na interface web](#6-apresentação-na-interface-web)
-- [7. Testes do módulo](#7-testes-do-módulo)
+- [5. Integração com o acervo Dedalus (`DedalusService`)](#5-integração-com-o-acervo-dedalus-dedalusservice)
+- [6. Contrato público (Web e JSON)](#6-contrato-público-web-e-json)
+- [7. Apresentação na interface web](#7-apresentação-na-interface-web)
+- [8. Testes do módulo](#8-testes-do-módulo)
 
 ---
 
@@ -21,20 +22,24 @@ O módulo de bibliografia recebe uma lista de referências em texto livre e uma 
 | Arquivo | Responsabilidade |
 | --- | --- |
 | [app/Ai/Agents/BibliografiaAgent.php](../app/Ai/Agents/BibliografiaAgent.php) | Define `SLUG = 'bibliografia'`, normas suportadas (`standards()`), template padrão (`defaultTemplate()`), schema das quatro listas e validação de correspondência. |
-| [app/Http/Controllers/BibliografiaController.php](../app/Http/Controllers/BibliografiaController.php) | Atende `GET/POST /bibliografia` (`bibliografia.index`), valida `message` e `standard`, executa o agente no `AiService` e retorna a view ou JSON. |
-| [resources/views/bibliografia/index.blade.php](../resources/views/bibliografia/index.blade.php) | Exibe o formulário, o comparador de alterações (diff), as referências corrigidas editáveis e as explicações com badges de confiança. |
+| [app/Services/DedalusService.php](../app/Services/DedalusService.php) | Monta o termo de busca (`autor` + `titulo`), consulta o endpoint `WSearch.php` do catálogo Dedalus/ABCD com cache e normaliza as publicações encontradas. |
+| [app/Http/Controllers/BibliografiaController.php](../app/Http/Controllers/BibliografiaController.php) | Atende `GET/POST /bibliografia` (`bibliografia.index`) e `GET /bibliografia/dedalus` (`bibliografia.dedalus`), executa o agente no `AiService`, consulta o `DedalusService` e retorna a view ou JSON. |
+| [resources/views/bibliografia/index.blade.php](../resources/views/bibliografia/index.blade.php) | Exibe o formulário, o comparador de alterações (diff), as referências corrigidas editáveis e as explicações com badges de confiança e de resultados no Dedalus. |
+| [resources/views/bibliografia/partials/dedalus.blade.php](../resources/views/bibliografia/partials/dedalus.blade.php) | Renderiza os modais de consulta ao Dedalus para cada referência e o script `UIDedalus` para refinamento assíncrono do termo de busca. |
 | [resources/views/bibliografia/partials/form.blade.php](../resources/views/bibliografia/partials/form.blade.php) | Formulário de envio para `route('bibliografia.index')`. |
 | [tests/Feature/BibliografiaAgentTest.php](../tests/Feature/BibliografiaAgentTest.php) | Verifica interpolação das normas, schema e validação de correspondência das listas. |
+| [tests/Feature/DedalusServiceTest.php](../tests/Feature/DedalusServiceTest.php) | Verifica construção do termo de busca, normalização de publicações, cache, tolerância a falhas e o endpoint `bibliografia.dedalus`. |
 
 ---
 
 ## 2. Rota, controller e validação de entrada
 
-A rota está registrada em [routes/web.php](../routes/web.php) sob o middleware `auth`:
+As rotas estão registradas em [routes/web.php](../routes/web.php) sob o middleware `auth`:
 
-| Endpoint | Nome da rota | Controller | Campos obrigatórios no POST |
+| Endpoint | Nome da rota | Controller | Parâmetros / Campos obrigatórios |
 | --- | --- | --- | --- |
-| `/bibliografia` | `bibliografia.index` | `BibliografiaController@index` | `message`: string de até 10.000 caracteres;<br/>`standard`: uma das normas retornadas por `BibliografiaAgent::standards()`. |
+| `GET/POST /bibliografia` | `bibliografia.index` | `BibliografiaController@index` | No POST: `message` (string de até 10.000 caracteres) e `standard` (uma das normas retornadas por `BibliografiaAgent::standards()`). |
+| `GET /bibliografia/dedalus` | `bibliografia.dedalus` | `BibliografiaController@dedalus` | Na query string: `search` (string obrigatória de até 500 caracteres) e `library` (opcional, até 50 caracteres). |
 
 - **`GET /bibliografia`**:
   - Na web: renderiza `bibliografia.index` com a lista de normas disponíveis (`$standards`).
@@ -42,6 +47,9 @@ A rota está registrada em [routes/web.php](../routes/web.php) sob o middleware 
 - **`POST /bibliografia`**:
   - Valida `message` e `standard` antes de acionar a IA (retornando HTTP 422 no JSON caso inválido).
   - Instancia `new BibliografiaAgent($standard)` e envia `$referencias` ao `AiService::submit()`.
+  - Prepara os termos de busca do Dedalus via `DedalusService::prepareBatch($resultado['busca_dedalus'])` sem realizar chamadas HTTP síncronas, preservando o tempo de resposta da IA.
+- **`GET /bibliografia/dedalus`**:
+  - Acionado automaticamente via AJAX (`UIDedalus`) assim que a tela de resultados é carregada, bem como quando o usuário edita o termo de busca ou a sigla da biblioteca diretamente pelo modal da interface.
 
 ---
 
@@ -100,7 +108,25 @@ Como o JSON Schema valida cada lista isoladamente mas não compara o tamanho ent
 
 ---
 
-## 5. Contrato público (Web e JSON)
+## 5. Integração com o acervo Dedalus (`DedalusService`)
+
+O serviço [app/Services/DedalusService.php](../app/Services/DedalusService.php) consulta a API pública de busca do ABCD/USP (`WSearch.php`):
+
+- **Configuração (`.env` e `config/dedalus.php`)**:
+  - `DEDALUS_URL`: URL base da busca (padrão: `https://app.abcd.usp.br/WSearch.php`).
+  - `DEDALUS_LIBRARY`: sigla da biblioteca padrão (padrão: `EESC`).
+  - `DEDALUS_TIMEOUT`: tempo limite em segundos para aguardar resposta da API (padrão: `30`).
+- **Construção do termo (`buildSearchQuery()`)**:
+  - Prioriza o título principal de `titulo` (antes de `:` ou `;`, compatível com `options=byTitle`), recorrendo ao sobrenome/segmento principal de `autor` apenas quando o título estiver ausente, e ignorando marcadores vazios (`N/A`, `[s.n.]`).
+- **Parâmetros enviados ao `WSearch.php`**:
+  - `search`, `library`, `resourceType=books` e `options=byTitle`.
+- **Execução e resiliência (`search()` e `searchBatch()`)**:
+  - Armazena respostas válidas em cache respeitando `config('aiService.cacheRetention')`.
+  - Caso o endpoint do Dedalus esteja indisponível ou retorne erro HTTP, registra um aviso em log e devolve `publications: []` com a mensagem em `error`, sem interromper a exibição das referências corrigidas pela IA.
+
+---
+
+## 6. Contrato público (Web e JSON)
 
 Em caso de sucesso, o controller fornece os seguintes dados para a view `bibliografia.index` e para o envelope JSON `{"success": true, "data": {...}}`:
 
@@ -110,6 +136,8 @@ Em caso de sucesso, o controller fornece os seguintes dados para a view `bibliog
 | `respostas` | Lista `referencias` retornada pelo agente (referências corrigidas). |
 | `explicacoes` | Lista `explicacoes` retornada pelo agente. |
 | `confiancas` | Lista `confiancas` retornada pelo agente (`0` a `100`). |
+| `buscaDedalus` | Lista original de pares `{autor, titulo}` retornada pelo agente em `busca_dedalus`. |
+| `dedalus` | Lista de resultados retornada por `DedalusService::searchBatch()` (`query`, `library`, `url`, `total`, `publications`, `error`). |
 | `estatisticas` | Metadados da execução retornados por `AiService::statistics()`. |
 | `prompt` | Texto final do prompt de sistema utilizado na execução. |
 | `standards` | Lista de normas disponíveis (`BibliografiaAgent::standards()`). |
@@ -117,27 +145,27 @@ Em caso de sucesso, o controller fornece os seguintes dados para a view `bibliog
 
 ---
 
-## 6. Apresentação na interface web
+## 7. Apresentação na interface web
 
 A tela [resources/views/bibliografia/index.blade.php](../resources/views/bibliografia/index.blade.php) exibe os resultados em três colunas sincronizadas:
 
 1. **Alterações (`#referencias-diff`)**: mostra visualmente as adições e remoções em relação ao texto original usando `UIDiffViewer`.
 2. **Referências corrigidas (`#resposta`)**: painel `contenteditable="true"` contendo cada referência com `data-index="{{ $index }}"` e botão de cópia (`bibliografia.partials.copiar-btn`). Editar o texto recalcula o diff automaticamente.
-3. **Explicações e qualidade da entrada (`#explicacao`)**: exibe a explicação de cada item acompanhada de um badge colorido conforme o índice de confiança:
-   - `>= 89%`: `badge-success` (verde)
-   - `>= 64%`: `badge-warning` (amarelo)
-   - `< 64%`: `badge-danger` (vermelho)
+3. **Explicações e qualidade da entrada (`#explicacao`)**: exibe a explicação de cada item acompanhada de:
+   - Um badge colorido conforme o índice de confiança (`>= 89%` verde, `>= 64%` amarelo, `< 64%` vermelho).
+   - Um botão/badge `Dedalus (<biblioteca>): <total>` que abre o modal de resultados do Dedalus (`#modal-dedalus-{{ $index }}`), onde o usuário visualiza as publicações encontradas (`title`, `authors`, `editor`, `publicationDate`, `format`, `mediaType`, `sysNo`, `subjects`) e pode editar o termo de busca ou a unidade para pesquisar novamente sem sair da tela.
 
 Passar o mouse sobre uma referência ou explicação destaca o par correspondente (`UICrossHighlight`).
 
 ---
 
-## 7. Testes do módulo
+## 8. Testes do módulo
 
-Para executar os testes específicos do agente e do fluxo de bibliografia:
+Para executar os testes específicos do agente, do serviço Dedalus e do fluxo de bibliografia:
 
 ```bash
 vendor/bin/phpunit tests/Feature/BibliografiaAgentTest.php
+vendor/bin/phpunit tests/Feature/DedalusServiceTest.php
 vendor/bin/phpunit --filter bibliography tests/Feature/AiControllerTest.php
 ```
 
