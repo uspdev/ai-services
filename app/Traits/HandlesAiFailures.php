@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Controllers\Concerns;
+namespace App\Traits;
 
 use GuzzleHttp\Exception\ConnectException;
 use Illuminate\Http\Client\ConnectionException;

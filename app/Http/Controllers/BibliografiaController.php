@@ -3,8 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Ai\Agents\BibliografiaAgent;
-use App\Http\Controllers\Concerns\HandlesAiFailures;
 use App\Services\AiService;
+use App\Traits\HandlesAiFailures;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
