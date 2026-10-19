@@ -445,12 +445,12 @@ class AiServiceTest extends TestCase
         // Usuário em memória evita criar registros no banco do ambiente local.
         $this->actingAs((new User)->forceFill(['id' => 1, 'name' => 'Teste', 'email' => 'teste@example.com']));
 
-        $this->postJson(route('bibliografia.bibliografia'), ['message' => 'Referência A.', 'standard' => 'APA 7th Edition'])
+        $this->postJson(route('bibliografia.index'), ['message' => 'Referência A.', 'standard' => 'APA 7th Edition'])
             ->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.respostas', self::bibliographyResult()['referencias'])
             ->assertJsonPath('data.estatisticas.usage.total_tokens', 30);
-        $this->postJson(route('bibliografia.ementa'), ['mensagem' => 'Ementa: introdução à programação.'])
+        $this->postJson(route('ementa.index'), ['mensagem' => 'Ementa: introdução à programação.'])
             ->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.resposta', self::ementaResult()['texto_revisado'])

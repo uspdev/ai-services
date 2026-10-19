@@ -1,4 +1,4 @@
-<form method="POST" action="{{ route('bibliografia.ementa') }}">
+<form method="POST" action="{{ route('ementa.index') }}">
   @csrf
   <div class="form-group">
     <label for="mensagem">

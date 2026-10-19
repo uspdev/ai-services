@@ -84,7 +84,7 @@ class AiControllerTest extends TestCase
     public static function providerFailures(): array
     {
         $cases = [];
-        foreach (['bibliografia.bibliografia', 'bibliografia.ementa'] as $route) {
+        foreach (['bibliografia.index', 'ementa.index'] as $route) {
             foreach ([429 => 429, 503 => 503, 402 => 503, 403 => 502, 500 => 502, 408 => 504, 504 => 504] as $upstream => $expected) {
                 $cases["{$route}: HTTP {$upstream}"] = [$route, $upstream, $expected];
             }
@@ -127,10 +127,10 @@ class AiControllerTest extends TestCase
     public static function connectionFailures(): array
     {
         return [
-            'bibliography connection' => ['bibliografia.bibliografia', false],
-            'bibliography timeout' => ['bibliografia.bibliografia', true],
-            'syllabus connection' => ['bibliografia.ementa', false],
-            'syllabus timeout' => ['bibliografia.ementa', true],
+            'bibliography connection' => ['bibliografia.index', false],
+            'bibliography timeout' => ['bibliografia.index', true],
+            'syllabus connection' => ['ementa.index', false],
+            'syllabus timeout' => ['ementa.index', true],
         ];
     }
 
@@ -209,7 +209,7 @@ class AiControllerTest extends TestCase
     #[DataProvider('aiRoutes')]
     public function test_invalid_user_input_is_rejected_before_calling_ai(string $route): void
     {
-        $field = $route === 'bibliografia.bibliografia' ? 'message' : 'mensagem';
+        $field = $route === 'bibliografia.index' ? 'message' : 'mensagem';
 
         $this->postJson(route($route), [])->assertUnprocessable()->assertJsonValidationErrors($field);
         Http::assertNothingSent();
@@ -255,7 +255,7 @@ class AiControllerTest extends TestCase
         $json = $this->postJson(route($route), $input);
         $json->assertOk()->assertJsonPath('success', true)->assertJsonPath('data.estatisticas.cached', true);
 
-        if ($route === 'bibliografia.bibliografia') {
+        if ($route === 'bibliografia.index') {
             $web->assertSee($result['referencias'][0]);
             $json->assertJsonPath('data.respostas', $result['referencias'])
                 ->assertJsonPath('data.standard', $input['standard'])
@@ -279,9 +279,9 @@ class AiControllerTest extends TestCase
      */
     public function test_json_get_describes_the_actual_input_fields(): void
     {
-        $this->getJson(route('bibliografia.bibliografia'))->assertOk()
+        $this->getJson(route('bibliografia.index'))->assertOk()
             ->assertJsonPath('message', 'Envie uma requisição POST com os campos "message" e "standard" para processar.');
-        $this->getJson(route('bibliografia.ementa'))->assertOk()
+        $this->getJson(route('ementa.index'))->assertOk()
             ->assertJsonPath('mensagem', 'Envie uma requisição POST com o campo "mensagem" para processar.');
         Http::assertNothingSent();
     }
@@ -294,8 +294,8 @@ class AiControllerTest extends TestCase
     public static function aiRoutes(): array
     {
         return [
-            'bibliography' => ['bibliografia.bibliografia'],
-            'syllabus' => ['bibliografia.ementa'],
+            'bibliography' => ['bibliografia.index'],
+            'syllabus' => ['ementa.index'],
         ];
     }
 
@@ -307,7 +307,7 @@ class AiControllerTest extends TestCase
      */
     private static function formInput(string $route): array
     {
-        return $route === 'bibliografia.bibliografia'
+        return $route === 'bibliografia.index'
             ? ['message' => 'Referência original.', 'standard' => 'APA 7th Edition']
             : ['mensagem' => 'Ementa original para revisão.'];
     }
@@ -320,7 +320,7 @@ class AiControllerTest extends TestCase
      */
     private static function resultFor(string $route): array
     {
-        if ($route === 'bibliografia.bibliografia') {
+        if ($route === 'bibliografia.index') {
             return [
                 'referencias' => ['Referência revisada.'],
                 'explicacoes' => ['Pontuação revisada.'],
