@@ -86,11 +86,11 @@ AI_CACHE_RETENTION=604800
 
 ### Agentes e saída estruturada
 
-`BibliografiaAgent` recebe a norma no construtor e retorna `referencias`, `explicacoes`, `busca_dedalus` e `confiancas`. A aplicação aceita as normas listadas em `AiPrompt::getBibliografiaStandards()`.
+`BibliografiaAgent` recebe a norma no construtor e retorna `referencias`, `explicacoes`, `busca_dedalus` e `confiancas`. A aplicação aceita as normas listadas em `BibliografiaAgent::standards()`.
 
 `EmentaAgent` retorna `score`, `explicacoes` e `texto_revisado`, com os campos em português e inglês. O status do inglês pode ser `presente`, `parcial` ou `ausente`.
 
-Os dois agentes reutilizam integralmente os prompts de `app/Models/AiPrompt.php`. Os schemas descrevem em código a estrutura já exigida pelos prompts. As chamadas são síncronas, com timeout de 60 segundos, sem memória de conversa, tools, streaming ou filas.
+Os dois agentes resolvem seus prompts a partir do banco de dados (`app/Models/AiPrompt.php`) com suporte a versionamento (`draft`, `active`, `archived`) e fallback em código. Os schemas descrevem em código a estrutura exigida pelos prompts. As chamadas são síncronas, com timeout de 60 segundos, sem memória de conversa, tools, streaming ou filas.
 
 Em código, utilize o serviço para obter dados validados e reaproveitar o cache:
 
@@ -126,4 +126,8 @@ Falhas de execução retornam `{"success": false, "message": "..."}`:
 
 Entrada inválida retorna 422, com os erros de validação do Laravel; requisições JSON sem autenticação retornam 401. Nas requisições web, falhas de IA retornam ao formulário com um alerta e preservam a entrada.
 
-Consulte a [documentação técnica da integração com o Laravel AI SDK](docs/implementacao-laravel-ai-sdk.md) para entender o código atual, os schemas, o cache, as estatísticas, os fluxos de execução e os testes. O [plano de implementação](docs/plano-implementacao-laravel-ai-sdk.md) registra as etapas e os resultados da migração.
+### Documentação Técnica
+
+- **[Arquitetura Geral e Integração com o Laravel AI SDK](docs/implementacao-laravel-ai-sdk.md)**: configuração do LiteLLM, versionamento de prompts (`AiPrompt`), `AiService`, cache, estatísticas, tratamento de falhas (`HandlesAiFailures`) e testes.
+- **[Serviço de Bibliografia](docs/bibliografia.md)**: detalhes do `BibliografiaController`, `BibliografiaAgent`, normas suportadas, schema das quatro listas e interface.
+- **[Serviço de Ementa](docs/ementa.md)**: detalhes do `EmentaController`, `EmentaAgent`, schema bilíngue e interface.
