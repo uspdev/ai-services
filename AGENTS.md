@@ -37,7 +37,7 @@ Use PHPUnit for unit/feature tests and Laravel Dusk for browser flows. Name file
 Recent commits favor `feat:` and `fix:` with short, often Portuguese descriptions. Follow that pattern with a focused subject. PRs should describe the behavior change, link relevant issues, report verification commands/results, and include screenshots for UI changes. Call out configuration or migration requirements.
 
 ## Agent-Specific Instructions
-At the end of every feature, provide the user with ready-to-run commands in the final chat response: `git add` listing the specific files belonging to the feature, followed by `git commit -m "<commit message>"` with an appropriate message. Exclude unrelated changes; do not use `git add .`. Never execute a commit automatically under any circumstances; the user must run the commit command manually.
+At the end of every feature, provide the user with ready-to-run commands in the final chat response: `git add` listing the specific files belonging to the feature, followed by `git commit -m "<commit message>"` with an appropriate message. Exclude unrelated changes; do not use `git add .`. Never execute a commit automatically; only execute `git commit` directly after explicit confirmation from the user.
 
 ## Security & Configuration Tips
 Keep credentials in `.env`; never commit real keys. Configure `AI_PROVIDER`, `LITELLM_URL`, `LITELLM_API_KEY`, and `LITELLM_MODEL` through `config/ai.php`. `config/aiService.php` only holds the response-cache retention from `AI_CACHE_RETENTION`. Preserve the existing prompts and authentication on bibliography and syllabus routes.

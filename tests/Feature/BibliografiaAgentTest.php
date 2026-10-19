@@ -117,7 +117,7 @@ class BibliografiaAgentTest extends TestCase
     public static function bibliographyStandards(): array
     {
         $cases = [];
-        foreach (AiPrompt::getBibliografiaStandards() as $standard) {
+        foreach (BibliografiaAgent::standards() as $standard) {
             $cases[$standard] = [$standard];
         }
 

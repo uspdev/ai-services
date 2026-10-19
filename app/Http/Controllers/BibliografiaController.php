@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Ai\Agents\BibliografiaAgent;
 use App\Ai\Agents\EmentaAgent;
-use App\Models\AiPrompt;
 use App\Services\AiService;
 use GuzzleHttp\Exception\ConnectException;
 use Illuminate\Http\Client\ConnectionException;
@@ -52,7 +51,7 @@ class BibliografiaController extends Controller
      */
     public function bibliografia(Request $request)
     {
-        $standards = AiPrompt::getBibliografiaStandards();
+        $standards = BibliografiaAgent::standards();
         if ($request->isMethod('get')) {
             if ($request->wantsJson()) {
                 return response()->json([
@@ -77,10 +76,11 @@ class BibliografiaController extends Controller
         $referencias = $request->input('message');
         $standard = $request->input('standard');
 
-        $prompt = AiPrompt::systemPrompt('bibliografia', ['standard' => $standard]);
         try {
-            // O agente fornece o prompt original; o serviço devolve o array validado.
-            $resultado = $this->aiService->submit(new BibliografiaAgent($standard), $referencias);
+            // O agente resolve o prompt ativo (ou fallback); o serviço devolve o array validado.
+            $agent = new BibliografiaAgent($standard);
+            $prompt = $agent->instructions();
+            $resultado = $this->aiService->submit($agent, $referencias);
         } catch (AiException|RequestException|ConnectionException|RuntimeException|InvalidArgumentException|JsonException $exception) {
             return $this->aiFailureResponse($request, $exception);
         }
@@ -121,9 +121,7 @@ class BibliografiaController extends Controller
                 ], 200);
             }
 
-            $standards = AiPrompt::getBibliografiaStandards();
-
-            return view('ementa.index', compact('standards'));
+            return view('ementa.index');
         }
 
         $request->validate([
@@ -132,10 +130,11 @@ class BibliografiaController extends Controller
 
         $mensagem = $request->input('mensagem');
 
-        $prompt = AiPrompt::systemPrompt('ementa');
         try {
-            // A entrada permanece separada das instruções preservadas pelo agente.
-            $resultado = $this->aiService->submit(new EmentaAgent, $mensagem);
+            // A entrada permanece separada das instruções resolvidas pelo agente.
+            $agent = new EmentaAgent;
+            $prompt = $agent->instructions();
+            $resultado = $this->aiService->submit($agent, $mensagem);
         } catch (AiException|RequestException|ConnectionException|RuntimeException|InvalidArgumentException|JsonException $exception) {
             return $this->aiFailureResponse($request, $exception);
         }
