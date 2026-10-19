@@ -19,7 +19,8 @@ Route::get('/', function () {
 });
 
 Route::middleware(['auth'])->group(function () {
-    Route::match(['get', 'post'], 'bibliografia', [BibliografiaController::class, 'processar'])->name('bibliografia.processar');
+    Route::match(['get', 'post'], 'bibliografia', [BibliografiaController::class, 'bibliografia'])->name('bibliografia.bibliografia');
+    Route::match(['get', 'post'], 'ementa', [BibliografiaController::class, 'ementa'])->name('bibliografia.ementa');
 });
 
 // Permite usar Gate::check('user')na view 404

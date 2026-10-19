@@ -10,7 +10,8 @@
       <span aria-hidden="true">&times;</span>
     </button>
 
-    <strong>Como utilizar</strong>
+    <h5 class="pb-0">Como utilizar</h5>
+    <hr />
 
     <p class="mb-2">
       Cole no campo <strong>Referências bibliográficas</strong> as referências
@@ -44,6 +45,13 @@
       utilizada como apoio à revisão. Verifique as referências e faça os ajustes
       necessários antes de utilizá-las.
     </p>
+
+    <div class="text-right mt-3">
+      <button type="button" class="btn btn-sm btn-info text-white font-weight-bold px-3"
+        onclick="$('#btn-fechar-ajuda').click()">
+        Entendi, fechar ajuda
+      </button>
+    </div>
   </div>
 @endif
 

@@ -34,9 +34,7 @@
                 <label class="ml-2" for="resposta">Referências corrigidas
                   <span class="badge badge-outline-info usptheme-contador-paragrafos"></span>
                 </label>
-                <div class="ml-auto pb-2">
-                  @include('bibliografia.partials.copiar-btn')
-                </div>
+                <div class="ml-auto pb-2">@include('bibliografia.partials.copiar-btn')</div>
               </div>
 
               <div id="resposta" class="form-control resposta-editavel usptheme-contador" contenteditable="true">
@@ -91,206 +89,36 @@
     </div>
   @endsection
 
+
   @push('scripts')
-    <script>
-      window.bibliografia = {
-        obterTextoResposta() {
-          const resposta = document.getElementById('resposta');
-          return resposta?.innerText.trim() ?? '';
-        },
-
-        escapeHtml(text) {
-          return text
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#039;');
-        }
-      };
-    </script>
-
-    <script src="https://cdn.jsdelivr.net/npm/diff@8.0.2/dist/diff.min.js"></script>
+    @include('partials.height-sync')
+    @include('partials.diff-viewer')
+    @include('partials.cross-highlight')
 
     <script>
       document.addEventListener('DOMContentLoaded', () => {
-
-        const original = document.getElementById('referencias');
+        const original = document.getElementById('message');
         const resposta = document.getElementById('resposta');
         const diff = document.getElementById('referencias-diff');
         const explicacao = document.getElementById('explicacao');
 
         if (!original || !resposta || !diff) return;
 
-        const {
-          obterTextoResposta,
-          escapeHtml
-        } = window.bibliografia;
+        // 1. Inicia sincronização autônoma de alturas
+        UIHeightSync.iniciar([diff, resposta, explicacao]);
 
-        const ajustarAltura = () => {
-          diff.style.height = 'auto';
-          resposta.style.height = 'auto';
+        // 2. Inicia os destaques ao passar o mouse
+        UICrossHighlight.iniciar(resposta, explicacao);
 
-          if (explicacao) {
-            explicacao.style.height = 'auto';
-          }
-
-          requestAnimationFrame(() => {
-            const altura = Math.max(
-              diff.scrollHeight,
-              resposta.scrollHeight,
-              explicacao?.scrollHeight ?? 0,
-              280
-            );
-
-            diff.style.height = `${altura}px`;
-            resposta.style.height = `${altura}px`;
-
-            if (explicacao) {
-              explicacao.style.height = `${altura}px`;
-            }
-          });
+        // 3. Atualiza o Diff passando os elementos diretamente (sem window.bibliografia)
+        const executarDiff = () => {
+          UIDiffViewer.atualizar(original, diff, resposta);
         };
 
-        const atualizarDiff = () => {
-          const changes = Diff.diffWordsWithSpace(
-            original.value,
-            obterTextoResposta()
-          );
+        resposta.addEventListener('input', executarDiff);
 
-          diff.innerHTML = changes
-            .map(change => {
-              const text = escapeHtml(change.value);
-
-              if (change.removed) {
-                return `<del class="del">${text}</del>`;
-              }
-
-              if (change.added) {
-                return `<ins class="ins">${text}</ins>`;
-              }
-
-              return text;
-            })
-            .join('');
-
-          ajustarAltura();
-        };
-
-        const destacar = (index, ativo) => {
-          resposta
-            .querySelector(`.referencia[data-index="${index}"]`)
-            ?.classList.toggle('destacada', ativo);
-
-          explicacao
-            ?.querySelector(`.explicacao-item[data-index="${index}"]`)
-            ?.classList.toggle('destacada', ativo);
-        };
-
-        explicacao
-          ?.querySelectorAll('.explicacao-item')
-          .forEach(item => {
-            item.addEventListener('mouseenter', () =>
-              destacar(item.dataset.index, true)
-            );
-
-            item.addEventListener('mouseleave', () =>
-              destacar(item.dataset.index, false)
-            );
-          });
-
-        resposta
-          .querySelectorAll('.referencia')
-          .forEach(item => {
-            item.addEventListener('mouseenter', () =>
-              destacar(item.dataset.index, true)
-            );
-
-            item.addEventListener('mouseleave', () =>
-              destacar(item.dataset.index, false)
-            );
-          });
-
-        resposta.addEventListener('input', atualizarDiff);
-
-        let resizeTimer;
-
-        window.addEventListener('resize', () => {
-          clearTimeout(resizeTimer);
-          resizeTimer = setTimeout(ajustarAltura, 100);
-        });
-
-        atualizarDiff();
+        // Execução inicial
+        executarDiff();
       });
     </script>
-  @endpush
-
-  @push('styles')
-    <style>
-      .diff-container {
-        min-height: 280px;
-        overflow: hidden;
-        white-space: pre-wrap;
-        word-break: break-word;
-        line-height: 1.5;
-        background-color: #e9ecef !important;
-        border: 1px solid #ced4da;
-        border-radius: 0.25rem;
-        padding: 0.375rem 0.75rem;
-      }
-
-      .resposta-editavel {
-        min-height: 280px;
-        overflow: hidden;
-        background-color: #fff;
-        line-height: 1.2;
-        cursor: text;
-      }
-
-      .resposta-editavel .referencia {
-        margin-bottom: 0.5rem;
-        padding: 0.15rem 0.25rem;
-        border-radius: 0.25rem;
-        transition: background-color 0.15s ease;
-      }
-
-      .resposta-editavel .referencia:last-child {
-        margin-bottom: 0;
-      }
-
-      .explicacao {
-        min-height: 280px;
-        overflow: hidden;
-        background-color: #e9ecef !important;
-        line-height: 1.2;
-      }
-
-      .explicacao-item {
-        margin-bottom: 0.5rem;
-        padding: 0.15rem 0.25rem;
-        border-radius: 0.25rem;
-        transition: background-color 0.15s ease;
-      }
-
-      .explicacao-item:last-child {
-        margin-bottom: 0;
-      }
-
-      .referencia.destacada,
-      .explicacao-item.destacada {
-        background-color: #fff3cd;
-      }
-
-      del,
-      .del {
-        color: #dc3545 !important;
-        text-decoration: line-through;
-      }
-
-      ins,
-      .ins {
-        color: #28a745 !important;
-        text-decoration: none;
-      }
-    </style>
   @endpush
