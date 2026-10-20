@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Ai\Agents\BibliografiaAgent;
 use App\Ai\Agents\EmentaAgent;
+use App\Ai\Agents\TextoAgent;
 use App\Enums\PromptStatus;
 use App\Models\AiPrompt;
 use Illuminate\Database\Seeder;
@@ -43,6 +44,17 @@ class AiPromptSeeder extends Seeder
                 'system_prompt' => EmentaAgent::defaultTemplate(),
                 'changelog' => 'Versão inicial do prompt de revisão de ementas.',
                 'metadata' => null,
+            ],
+            [
+                'slug' => TextoAgent::SLUG,
+                'version' => 1,
+                'nome' => 'Assistente de Elaboração de Textos',
+                'descricao' => 'Elabora e aprimora textos institucionais e acadêmicos a partir de rascunhos do usuário.',
+                'system_prompt' => TextoAgent::defaultTemplate(),
+                'changelog' => 'Versão inicial do prompt de elaboração de textos.',
+                'metadata' => [
+                    'styles' => TextoAgent::DEFAULT_STYLES,
+                ],
             ],
         ];
 

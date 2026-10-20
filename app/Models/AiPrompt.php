@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Ai\Agents\BibliografiaAgent;
 use App\Ai\Agents\EmentaAgent;
+use App\Ai\Agents\TextoAgent;
 use App\Enums\PromptStatus;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -296,7 +297,13 @@ class AiPrompt extends Model
     public static function interpolateTemplate(string $template, ?array $params = []): string
     {
         $standard = empty($params['standard']) ? 'ABNT NBR 6023:2025' : (string) $params['standard'];
-        $values = array_merge($params ?? [], ['standard' => $standard]);
+        $availableStyles = empty($params['availableStyles'])
+            ? TextoAgent::availableStylesList()
+            : (string) $params['availableStyles'];
+        $values = array_merge($params ?? [], [
+            'standard' => $standard,
+            'availableStyles' => $availableStyles,
+        ]);
 
         foreach ($values as $key => $value) {
             if (! is_scalar($value) && $value !== null) {
@@ -327,6 +334,7 @@ class AiPrompt extends Model
         $fallback = match ($slug) {
             BibliografiaAgent::SLUG => BibliografiaAgent::defaultTemplate(),
             EmentaAgent::SLUG => EmentaAgent::defaultTemplate(),
+            TextoAgent::SLUG => TextoAgent::defaultTemplate(),
             default => null,
         };
 

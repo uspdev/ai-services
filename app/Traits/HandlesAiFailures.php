@@ -62,7 +62,7 @@ trait HandlesAiFailures
         // Os alertas do tema exibem o erro; somente os campos dos formulários
         // são preservados na sessão, sem reaproveitar tokens ou outros parâmetros.
         return redirect()->route($request->route()?->getName())
-            ->withInput($request->only(['message', 'standard', 'mensagem']))
+            ->withInput($request->only(['message', 'standard', 'mensagem', 'rascunho', 'style', 'contexto']))
             ->withErrors(['ai' => $message]);
     }
 

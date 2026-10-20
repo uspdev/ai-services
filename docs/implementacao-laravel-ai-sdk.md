@@ -4,8 +4,9 @@ Este documento descreve a arquitetura geral de integração da plataforma com o 
 
 Para os detalhes específicos de cada serviço, consulte:
 
-- **[Documentação do Serviço de Bibliografia](bibliografia.md)** (`BibliografiaController` e `BibliografiaAgent`)
+- **[Documentação do Serviço de Bibliografia](bibliografia.md)** (`BibliografiaController`, `BibliografiaAgent` e `DedalusService`)
 - **[Documentação do Serviço de Ementa](ementa.md)** (`EmentaController` e `EmentaAgent`)
+- **[Documentação do Serviço de Elaboração de Texto](texto.md)** (`TextoController` e `TextoAgent`)
 
 ## Índice
 

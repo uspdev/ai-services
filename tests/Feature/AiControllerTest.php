@@ -84,7 +84,7 @@ class AiControllerTest extends TestCase
     public static function providerFailures(): array
     {
         $cases = [];
-        foreach (['bibliografia.index', 'ementa.index'] as $route) {
+        foreach (['bibliografia.index', 'ementa.index', 'texto.index'] as $route) {
             foreach ([429 => 429, 503 => 503, 402 => 503, 403 => 502, 500 => 502, 408 => 504, 504 => 504] as $upstream => $expected) {
                 $cases["{$route}: HTTP {$upstream}"] = [$route, $upstream, $expected];
             }
@@ -131,6 +131,8 @@ class AiControllerTest extends TestCase
             'bibliography timeout' => ['bibliografia.index', true],
             'syllabus connection' => ['ementa.index', false],
             'syllabus timeout' => ['ementa.index', true],
+            'text connection' => ['texto.index', false],
+            'text timeout' => ['texto.index', true],
         ];
     }
 
@@ -196,7 +198,7 @@ class AiControllerTest extends TestCase
         $this->get(route($route))
             ->assertOk()
             ->assertSee('O serviço de IA está indisponível no momento.')
-            ->assertSee($input['message'] ?? $input['mensagem'])
+            ->assertSee($input['message'] ?? $input['mensagem'] ?? $input['rascunho'])
             ->assertDontSee('private-upstream-details');
     }
 
@@ -209,7 +211,11 @@ class AiControllerTest extends TestCase
     #[DataProvider('aiRoutes')]
     public function test_invalid_user_input_is_rejected_before_calling_ai(string $route): void
     {
-        $field = $route === 'bibliografia.index' ? 'message' : 'mensagem';
+        $field = match ($route) {
+            'bibliografia.index' => 'message',
+            'ementa.index' => 'mensagem',
+            default => 'rascunho',
+        };
 
         $this->postJson(route($route), [])->assertUnprocessable()->assertJsonValidationErrors($field);
         Http::assertNothingSent();
@@ -263,7 +269,7 @@ class AiControllerTest extends TestCase
                 ->assertJsonPath('data.dedalus.0.library', 'EESC')
                 ->assertJsonPath('data.standard', $input['standard'])
                 ->assertJsonPath('data.prompt', AiPrompt::systemPrompt('bibliografia', ['standard' => $input['standard']]));
-        } else {
+        } elseif ($route === 'ementa.index') {
             $web->assertSee('Score: 90/100')->assertSee('Status: Ausente');
             // Texto com marcação deve ser apresentado literalmente, mantendo as quebras de linha.
             $web->assertSee(nl2br(e($result['texto_revisado']['ementa']['pt'])), false)
@@ -271,6 +277,18 @@ class AiControllerTest extends TestCase
             $json->assertJsonPath('data.resposta', $result['texto_revisado'])
                 ->assertJsonPath('data.analiseIngles', $result['explicacoes']['en'])
                 ->assertJsonPath('data.prompt', AiPrompt::systemPrompt('ementa'));
+        } else {
+            $web->assertSee(nl2br(e($result['texto_elaborado'])), false)
+                ->assertSee($result['estilo_aplicado'])
+                ->assertSee($result['assunto_sugerido'])
+                ->assertDontSee('<script>alert("model-output")</script>', false);
+            $json->assertJsonPath('data.textoElaborado', $result['texto_elaborado'])
+                ->assertJsonPath('data.estiloAplicado', $result['estilo_aplicado'])
+                ->assertJsonPath('data.assuntoSugerido', $result['assunto_sugerido'])
+                ->assertJsonPath('data.melhorias', $result['melhorias'])
+                ->assertJsonPath('data.observacoes', $result['observacoes'])
+                ->assertJsonPath('data.style', $input['style'])
+                ->assertJsonPath('data.prompt', AiPrompt::systemPrompt('texto', ['style' => $input['style']]));
         }
         Http::assertSentCount(1);
     }
@@ -286,11 +304,13 @@ class AiControllerTest extends TestCase
             ->assertJsonPath('message', 'Envie uma requisição POST com os campos "message" e "standard" para processar.');
         $this->getJson(route('ementa.index'))->assertOk()
             ->assertJsonPath('mensagem', 'Envie uma requisição POST com o campo "mensagem" para processar.');
+        $this->getJson(route('texto.index'))->assertOk()
+            ->assertJsonPath('message', 'Envie uma requisição POST com os campos "rascunho" e "style" para processar.');
         Http::assertNothingSent();
     }
 
     /**
-     * Lista as rotas dos dois serviços para repetir os cenários de integração.
+     * Lista as rotas dos serviços para repetir os cenários de integração.
      *
      * @return array<string, array{string}> Rotas autenticadas dos formulários.
      */
@@ -299,6 +319,7 @@ class AiControllerTest extends TestCase
         return [
             'bibliography' => ['bibliografia.index'],
             'syllabus' => ['ementa.index'],
+            'text' => ['texto.index'],
         ];
     }
 
@@ -310,16 +331,22 @@ class AiControllerTest extends TestCase
      */
     private static function formInput(string $route): array
     {
-        return $route === 'bibliografia.index'
-            ? ['message' => 'Referência original.', 'standard' => 'APA 7th Edition']
-            : ['mensagem' => 'Ementa original para revisão.'];
+        return match ($route) {
+            'bibliografia.index' => ['message' => 'Referência original.', 'standard' => 'APA 7th Edition'],
+            'ementa.index' => ['mensagem' => 'Ementa original para revisão.'],
+            default => [
+                'rascunho' => 'Rascunho original para elaboração.',
+                'style' => 'Automático (detectar pelo rascunho)',
+                'contexto' => 'Comunicado interno.',
+            ],
+        };
     }
 
     /**
      * Monta uma resposta válida com os campos consumidos pelas telas atuais.
      *
      * @param string $route Nome da rota que determina o contrato de saída.
-     * @return array<string, mixed> Resultado simulado de bibliografia ou ementa.
+     * @return array<string, mixed> Resultado simulado de bibliografia, ementa ou texto.
      */
     private static function resultFor(string $route): array
     {
@@ -329,6 +356,16 @@ class AiControllerTest extends TestCase
                 'explicacoes' => ['Pontuação revisada.'],
                 'busca_dedalus' => [['autor' => 'Autor', 'titulo' => 'Título']],
                 'confiancas' => [90],
+            ];
+        }
+
+        if ($route === 'texto.index') {
+            return [
+                'texto_elaborado' => "Comunicado revisado.\n<script>alert(\"model-output\")</script>",
+                'estilo_aplicado' => 'Comunicado / E-mail Institucional',
+                'assunto_sugerido' => 'Comunicado sobre prazos',
+                'melhorias' => ['Estruturação formal aplicada.'],
+                'observacoes' => 'Confirme a data limite.',
             ];
         }
 

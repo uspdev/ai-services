@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Ai\Agents\BibliografiaAgent;
 use App\Ai\Agents\EmentaAgent;
+use App\Ai\Agents\TextoAgent;
 use App\Enums\PromptStatus;
 use App\Models\AiPrompt;
 use Database\Seeders\AiPromptSeeder;
@@ -68,14 +69,17 @@ class AiPromptVersioningTest extends TestCase
 
         $bibliografiaPrompt = (new BibliografiaAgent('APA 7th Edition'))->instructions();
         $ementaPrompt = (new EmentaAgent)->instructions();
+        $textoPrompt = (new TextoAgent('Ofício / Despacho Administrativo'))->instructions();
 
         $this->assertStringContainsString('following the APA 7th Edition standard', $bibliografiaPrompt);
         $this->assertStringContainsString('Academic and Curriculum Reviewer', $ementaPrompt);
+        $this->assertStringContainsString('Ofício / Despacho Administrativo', $textoPrompt);
         $this->assertSame(BibliografiaAgent::DEFAULT_STANDARDS, BibliografiaAgent::standards());
+        $this->assertSame(TextoAgent::DEFAULT_STYLES, TextoAgent::styles());
     }
 
     /**
-     * Confere que o seeder popula a versão 1 ativa de bibliografia e ementa de forma idempotente.
+     * Confere que o seeder popula a versão 1 ativa de bibliografia, ementa e texto de forma idempotente.
      *
      * @return void
      */
@@ -84,10 +88,11 @@ class AiPromptVersioningTest extends TestCase
         $this->seed(AiPromptSeeder::class);
         $this->seed(AiPromptSeeder::class);
 
-        $this->assertSame(2, AiPrompt::count());
+        $this->assertSame(3, AiPrompt::count());
 
         $bibliografia = AiPrompt::findActive('bibliografia');
         $ementa = AiPrompt::findActive('ementa');
+        $texto = AiPrompt::findActive('texto');
 
         $this->assertNotNull($bibliografia);
         $this->assertSame(1, $bibliografia->version);
@@ -98,6 +103,11 @@ class AiPromptVersioningTest extends TestCase
         $this->assertSame(1, $ementa->version);
         $this->assertSame(PromptStatus::Active, $ementa->status);
         $this->assertSame('Ativa (Produção)', $ementa->status->label());
+
+        $this->assertNotNull($texto);
+        $this->assertSame(1, $texto->version);
+        $this->assertSame(PromptStatus::Active, $texto->status);
+        $this->assertSame(TextoAgent::DEFAULT_STYLES, $texto->metadata['styles']);
     }
 
     /**
