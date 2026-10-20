@@ -40,13 +40,13 @@
     <div class="card-header bg-white border rounded mb-4 d-flex align-items-center justify-content-between">
       <div>
         <h4 class="mb-1">Serviços de Inteligência Artificial</h4>
-        <small class="text-muted">
+        <div class="text-muted">
           Este espaço reúne ferramentas e recursos desenvolvidos para apoiar as atividades cotidianas das unidades da
           Universidade de São Paulo (USP), promovendo maior eficiência, organização e padronização na execução das rotinas
           administrativas e institucionais. O objetivo é oferecer soluções práticas que contribuam para aprimorar a
           qualidade dos trabalhos, simplificar processos e favorecer o alinhamento com os padrões estabelecidos pela
           Universidade.
-        </small>
+        </div>
       </div>
     </div>
 
