@@ -70,12 +70,15 @@ Os agentes implementam `Laravel\Ai\Contracts\Agent` e `HasStructuredOutput`, sem
 | [database/seeders/AiPromptSeeder.php](../database/seeders/AiPromptSeeder.php) | Popular de forma idempotente a versão inicial (`v1`) dos prompts no banco. |
 | [app/Ai/Agents/BibliografiaAgent.php](../app/Ai/Agents/BibliografiaAgent.php) | Agente de bibliografia: normas suportadas, template padrão, schema e validação das quatro listas. |
 | [app/Ai/Agents/EmentaAgent.php](../app/Ai/Agents/EmentaAgent.php) | Agente de ementa: template padrão e schema de revisão bilíngue. |
+| [app/Ai/Agents/TextoAgent.php](../app/Ai/Agents/TextoAgent.php) | Agente de elaboração de textos: estilos suportados, template padrão e schema de perguntas/texto elaborado. |
 | [app/Services/AiService.php](../app/Services/AiService.php) | Executar agentes estruturados, validar resultados, administrar cache e normalizar estatísticas. |
 | [app/Traits/HandlesAiFailures.php](../app/Traits/HandlesAiFailures.php) | Trait compartilhada entre controllers para converter exceções da IA em respostas web/JSON seguras. |
 | [app/Http/Controllers/BibliografiaController.php](../app/Http/Controllers/BibliografiaController.php) | Validar e atender requisições de `/bibliografia` (`bibliografia.index`). |
 | [app/Http/Controllers/EmentaController.php](../app/Http/Controllers/EmentaController.php) | Validar e atender requisições de `/ementa` (`ementa.index`). |
-| [routes/web.php](../routes/web.php) | Registrar as rotas autenticadas `bibliografia.index` e `ementa.index`. |
-| [tests/Feature](../tests/Feature) | Verificar configuração, versionamento de prompts, agentes, serviço e respostas HTTP. |
+| [app/Http/Controllers/TextoController.php](../app/Http/Controllers/TextoController.php) | Validar e atender requisições de `/texto` (`texto.index`). |
+| [app/Http/Controllers/AiPromptController.php](../app/Http/Controllers/AiPromptController.php) | Gerenciar listagem, edição, versionamento e ativação de prompts em `/settings/prompts` (`can:manager`). |
+| [routes/web.php](../routes/web.php) | Registrar as rotas autenticadas dos serviços e o grupo `settings/prompts`. |
+| [tests/Feature](../tests/Feature) | Verificar configuração, versionamento e CRUD de prompts, agentes, serviço e respostas HTTP. |
 
 ---
 
@@ -156,7 +159,19 @@ Os agentes resolvem suas instruções por meio de `AiPrompt::resolve($slug, $fal
 
 1. Se `$version` for informado (ex.: `new EmentaAgent(version: 2)`), busca especificamente aquela versão no banco (inclusive se estiver em `draft`).
 2. Se `$version` for `null`, busca a versão `active` no banco utilizando o cache `ai_prompt:{slug}:active`.
-3. Caso o banco de dados ainda não esteja migrado ou não possua versão ativa para o `slug`, utiliza o `$fallbackTemplate` fornecido pelo próprio agente (`BibliografiaAgent::defaultTemplate()` ou `EmentaAgent::defaultTemplate()`).
+3. Caso o banco de dados ainda não esteja migrado ou não possua versão ativa para o `slug`, utiliza o `$fallbackTemplate` fornecido pelo próprio agente (`BibliografiaAgent::defaultTemplate()`, `EmentaAgent::defaultTemplate()` ou `TextoAgent::defaultTemplate()`).
+
+### 4.4 Interface web de gerenciamento (`/settings/prompts`)
+
+Usuários com a permissão `can:manager` dispõem do menu **Settings -> Prompts de IA** (`/settings/prompts`), atendido por [`AiPromptController`](../app/Http/Controllers/AiPromptController.php):
+
+- **Listagem agrupada por serviço (`GET /settings/prompts`)**: inicializa automaticamente os registros padrão (`AiPrompt::ensureDefaultsExist()`) caso a tabela `ai_prompts` esteja vazia e exibe o histórico de versões (`v1`, `v2`, ...) de cada `slug`, indicando qual versão está ativa em produção e permitindo alternar a versão ativa com um clique (`PATCH /settings/prompts/{prompt}/activate`). Não há criação livre de novos slugs nem exclusão de versões.
+- **Edição com versionamento e comparador visual (`GET /settings/prompts/{prompt}/edit` e `PUT /settings/prompts/{prompt}`)**:
+  - Exibe badges clicáveis com os placeholders dinâmicos do serviço (`{$standard}`, `{$style}`, `{$availableStyles}`) para inserção rápida no `system_prompt`.
+  - Oferece editor amigável em linhas para as listas de metadados (`metadata.standards` na bibliografia e `metadata.styles` na elaboração de texto).
+  - Inclui botão **Restaurar padrão do código** para preencher o formulário com o template e os metadados originais da classe do Agente.
+  - Integra o componente `UIDiffViewer` para comparar em tempo real o texto em edição com a versão atualmente ativa em produção.
+  - Ao salvar, apresenta um modal permitindo escolher entre **atualizar a própria versão** (`save_mode = update`) ou **criar uma nova versão derivada** (`save_mode = new_version`), além da opção de **ativar imediatamente em produção** (`activate_now`).
 
 ---
 
@@ -279,8 +294,10 @@ As views utilizam partials compartilhados em `resources/views/partials/`:
 | --- | --- |
 | [AiSdkConfigurationTest.php](../tests/Feature/AiSdkConfigurationTest.php) | Normalização de URL do LiteLLM, autenticação HTTP, modelo e envio de `json_schema`. |
 | [AiPromptVersioningTest.php](../tests/Feature/AiPromptVersioningTest.php) | Ciclo de vida no banco (`draft`, `active`, `archived`), `AiPromptSeeder`, invalidação de cache, rollback, metadados e fallback. |
+| [AiPromptCrudTest.php](../tests/Feature/AiPromptCrudTest.php) | Gerenciamento web em `/settings/prompts` (`can:manager`), inicialização automática, atualização direta, criação de nova versão e troca de versão ativa. |
 | [BibliografiaAgentTest.php](../tests/Feature/BibliografiaAgentTest.php) | Contrato do `BibliografiaAgent`, interpolação de normas e validação de correspondência das quatro listas. |
 | [EmentaAgentTest.php](../tests/Feature/EmentaAgentTest.php) | Contrato do `EmentaAgent`, schema bilíngue e estados do inglês (`presente`, `parcial`, `ausente`). |
+| [TextoAgentTest.php](../tests/Feature/TextoAgentTest.php) | Contrato do `TextoAgent`, detecção automática de estilo, fluxo de esclarecimentos e rota `/texto`. |
 | [AiServiceTest.php](../tests/Feature/AiServiceTest.php) | Execução pelo `AiService`, timeout, retenção e isolamento de cache, estatísticas e rejeição de respostas inválidas. |
 | [AiControllerTest.php](../tests/Feature/AiControllerTest.php) | Rotas `bibliografia.index` e `ementa.index`, autenticação, validação, tratamento de falhas e respostas web/JSON. |
 

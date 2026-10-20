@@ -39,13 +39,28 @@
         .replace(/'/g, '&#039;');
     };
 
+    /**
+     * Extrai o texto de comparação tanto de campos de formulário (`value`) quanto de blocos editáveis (`innerText`).
+     *
+     * @param {HTMLElement} elemento Elemento de origem ou destino do diff.
+     * @returns {string} Texto normalizado para comparação.
+     */
+    const extrairTexto = (elemento) => {
+      const texto = typeof elemento.value === 'string'
+        ? elemento.value
+        : (elemento.innerText || '');
+
+      return texto.replace(/\r\n/g, '\n').trim();
+    };
+
     const atualizar = (elOriginal, elDiff, elResposta) => {
       if (!elOriginal || !elDiff || !elResposta) return;
 
-      const textoResposta = elResposta.innerText.trim();
+      const textoOriginal = extrairTexto(elOriginal);
+      const textoResposta = extrairTexto(elResposta);
 
       const changes = Diff.diffWordsWithSpace(
-        elOriginal.value,
+        textoOriginal,
         textoResposta
       );
 

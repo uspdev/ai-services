@@ -9,6 +9,7 @@ use App\Enums\PromptStatus;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Facade;
@@ -148,6 +149,121 @@ class AiPrompt extends Model
             'metadata' => $this->metadata,
             'changelog' => $changelog,
         ]);
+    }
+
+    /**
+     * Retorna o caminho do arquivo de log dedicado às alterações de prompts.
+     *
+     * @return string Caminho absoluto para `storage/logs/aiprompt.log` (ou caminho configurado).
+     */
+    public static function logFilePath(): string
+    {
+        return (string) config('aiService.promptLogPath', storage_path('logs/aiprompt.log'));
+    }
+
+    /**
+     * Retorna o período em meses configurado para exibição do histórico de logs de prompts.
+     *
+     * @return int Quantidade de meses (padrão: 12).
+     */
+    public static function logRetentionMonths(): int
+    {
+        return max(1, (int) config('aiService.promptLogRetentionMonths', 12));
+    }
+
+    /**
+     * Registra uma entrada de auditoria em `storage/logs/aiprompt.log`.
+     *
+     * @param string $action Código da operação (`update`, `new_version`, `activate`).
+     * @param string $actionLabel Rótulo legível da operação realizada.
+     * @param string $details Descrição detalhada da alteração.
+     * @param object|null $user Usuário autenticado responsável pela ação.
+     * @return self A própria instância do prompt.
+     */
+    public function recordLog(string $action, string $actionLabel, string $details, ?object $user = null): self
+    {
+        $now = now();
+        $entry = [
+            'slug' => $this->slug,
+            'timestamp' => $now->toIso8601String(),
+            'formatted_date' => $now->format('d/m/Y H:i:s'),
+            'user_id' => $user->id ?? null,
+            'user_name' => $user->name ?? 'Sistema',
+            'user_codpes' => $user->codpes ?? null,
+            'user_email' => $user->email ?? null,
+            'version' => $this->version,
+            'action' => $action,
+            'action_label' => $actionLabel,
+            'details' => $details,
+        ];
+
+        $logPath = self::logFilePath();
+        $dir = dirname($logPath);
+        if (! is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+
+        $env = app()->environment();
+        $json = json_encode($entry, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $line = sprintf(
+            "[%s] %s.INFO: AiPrompt [%s v%d]: %s %s\n",
+            $now->format('Y-m-d H:i:s'),
+            $env,
+            $this->slug,
+            $this->version,
+            $actionLabel,
+            $json
+        );
+
+        file_put_contents($logPath, $line, FILE_APPEND | LOCK_EX);
+
+        return $this;
+    }
+
+    /**
+     * Retorna o histórico de alterações de um `slug` lido de `storage/logs/aiprompt.log`,
+     * filtrado pelos últimos N meses configurados (`AI_PROMPT_LOG_RETENTION_MONTHS`) e
+     * ordenado do mais recente ao mais antigo.
+     *
+     * @param string $slug Identificador do serviço.
+     * @return list<array<string, mixed>> Lista ordenada de registros de log do prompt.
+     */
+    public static function logsForSlug(string $slug): array
+    {
+        $logPath = self::logFilePath();
+        if (! is_file($logPath) || ! is_readable($logPath)) {
+            return [];
+        }
+
+        $cutoff = now()->subMonths(self::logRetentionMonths());
+        $lines = file($logPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+        $entries = [];
+
+        foreach ($lines as $line) {
+            $jsonStart = strpos($line, '{');
+            if ($jsonStart === false) {
+                continue;
+            }
+
+            $decoded = json_decode(substr($line, $jsonStart), true);
+            if (! is_array($decoded) || ($decoded['slug'] ?? null) !== $slug) {
+                continue;
+            }
+
+            if (! empty($decoded['timestamp'])) {
+                try {
+                    if (Carbon::parse((string) $decoded['timestamp'])->lt($cutoff)) {
+                        continue;
+                    }
+                } catch (\Throwable) {
+                    // Mantém o registro caso o timestamp não possa ser interpretado.
+                }
+            }
+
+            $entries[] = $decoded;
+        }
+
+        return array_reverse($entries);
     }
 
     /**
@@ -321,6 +437,138 @@ class AiPrompt extends Model
     }
 
     /**
+     * Retorna o template padrão em código associado a um `slug`.
+     *
+     * @param string $slug Identificador do serviço.
+     * @return string|null Template padrão do agente ou `null` quando desconhecido.
+     */
+    public static function defaultTemplateForSlug(string $slug): ?string
+    {
+        return match ($slug) {
+            BibliografiaAgent::SLUG => BibliografiaAgent::defaultTemplate(),
+            EmentaAgent::SLUG => EmentaAgent::defaultTemplate(),
+            TextoAgent::SLUG => TextoAgent::defaultTemplate(),
+            default => null,
+        };
+    }
+
+    /**
+     * Retorna a chave de lista editável em `metadata` para o `slug` informado, se houver.
+     *
+     * @param string $slug Identificador do serviço.
+     * @return string|null Nome da chave (`standards` ou `styles`) ou `null` quando não aplicável.
+     */
+    public static function metadataListKey(string $slug): ?string
+    {
+        return match ($slug) {
+            BibliografiaAgent::SLUG => 'standards',
+            TextoAgent::SLUG => 'styles',
+            default => null,
+        };
+    }
+
+    /**
+     * Retorna a lista padrão de opções de metadados definida em código para o `slug`.
+     *
+     * @param string $slug Identificador do serviço.
+     * @return list<string> Lista padrão de opções ou array vazio.
+     */
+    public static function defaultMetadataItemsForSlug(string $slug): array
+    {
+        return match ($slug) {
+            BibliografiaAgent::SLUG => BibliografiaAgent::DEFAULT_STANDARDS,
+            TextoAgent::SLUG => TextoAgent::DEFAULT_STYLES,
+            default => [],
+        };
+    }
+
+    /**
+     * Retorna as variáveis dinâmicas suportadas na interpolação do prompt de cada serviço.
+     *
+     * @param string $slug Identificador do serviço.
+     * @return array<string, string> Mapa de placeholder para sua descrição na interface.
+     */
+    public static function placeholdersForSlug(string $slug): array
+    {
+        return match ($slug) {
+            BibliografiaAgent::SLUG => [
+                '{$standard}' => 'Norma bibliográfica selecionada pelo usuário no formulário.',
+                '{{ $standard }}' => 'Formato alternativo da norma bibliográfica.',
+            ],
+            TextoAgent::SLUG => [
+                '{$style}' => 'Estilo/formato textual selecionado pelo usuário.',
+                '{$availableStyles}' => 'Lista de estilos disponíveis configurados no sistema.',
+            ],
+            default => [],
+        };
+    }
+
+    /**
+     * Garante de forma idempotente que os prompts iniciais dos agentes existam na tabela `ai_prompts`.
+     *
+     * @return void
+     */
+    public static function ensureDefaultsExist(): void
+    {
+        $definitions = [
+            [
+                'slug' => BibliografiaAgent::SLUG,
+                'version' => 1,
+                'nome' => 'Formatador de Referências Bibliográficas',
+                'descricao' => 'Normaliza e valida listas de referências bibliográficas segundo normas acadêmicas.',
+                'system_prompt' => BibliografiaAgent::defaultTemplate(),
+                'changelog' => 'Versão inicial do prompt de formatação bibliográfica.',
+                'metadata' => [
+                    'standards' => BibliografiaAgent::DEFAULT_STANDARDS,
+                ],
+            ],
+            [
+                'slug' => EmentaAgent::SLUG,
+                'version' => 1,
+                'nome' => 'Revisor de Ementas e Conteúdo Pedagógico',
+                'descricao' => 'Avalia, traduz e revisa ementas, objetivos e conteúdo programático em português e inglês.',
+                'system_prompt' => EmentaAgent::defaultTemplate(),
+                'changelog' => 'Versão inicial do prompt de revisão de ementas.',
+                'metadata' => null,
+            ],
+            [
+                'slug' => TextoAgent::SLUG,
+                'version' => 1,
+                'nome' => 'Assistente de Elaboração de Textos',
+                'descricao' => 'Elabora e aprimora textos institucionais e acadêmicos a partir de rascunhos do usuário.',
+                'system_prompt' => TextoAgent::defaultTemplate(),
+                'changelog' => 'Versão inicial do prompt de elaboração de textos.',
+                'metadata' => [
+                    'styles' => TextoAgent::DEFAULT_STYLES,
+                ],
+            ],
+        ];
+
+        foreach ($definitions as $definition) {
+            $slug = $definition['slug'];
+            $hasActiveVersion = static::forSlug($slug)->active()->exists();
+
+            static::firstOrCreate(
+                [
+                    'slug' => $slug,
+                    'version' => $definition['version'],
+                ],
+                [
+                    'status' => $hasActiveVersion ? PromptStatus::Archived : PromptStatus::Active,
+                    'nome' => $definition['nome'],
+                    'descricao' => $definition['descricao'],
+                    'system_prompt' => $definition['system_prompt'],
+                    'changelog' => $definition['changelog'],
+                    'metadata' => $definition['metadata'],
+                    'published_at' => $hasActiveVersion ? null : now(),
+                ]
+            );
+
+            self::forgetCache($slug);
+        }
+    }
+
+    /**
      * Retorna as instruções de sistema associadas a um prompt pelo seu `slug`.
      *
      * @param string $slug Identificador do prompt.
@@ -331,12 +579,7 @@ class AiPrompt extends Model
      */
     public static function systemPrompt(string $slug, ?array $params = [], ?int $version = null): string
     {
-        $fallback = match ($slug) {
-            BibliografiaAgent::SLUG => BibliografiaAgent::defaultTemplate(),
-            EmentaAgent::SLUG => EmentaAgent::defaultTemplate(),
-            TextoAgent::SLUG => TextoAgent::defaultTemplate(),
-            default => null,
-        };
+        $fallback = self::defaultTemplateForSlug($slug);
 
         return self::resolve($slug, $fallback, $params, $version);
     }

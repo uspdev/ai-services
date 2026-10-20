@@ -25,6 +25,8 @@ This Laravel 12 application provides USP bibliography formatting and course-desc
 ## Coding Style & Naming Conventions
 Follow `.editorconfig`: four spaces, UTF-8, LF, final newline; YAML uses two spaces. `.styleci.yml` defines the Laravel PHP preset and JS/CSS checks; no local lint script is configured. Use PSR-4 namespaces, PascalCase classes, camelCase methods, and descriptive kebab-case Blade partials such as `copiar-btn.blade.php`. Keep provider integration in services and reusable presentation in partials.
 
+Extract buttons and badges (along with their associated modals or scripts) into separate Blade partials whenever doing so improves code organization or enables reuse across views. When calling `@include(...)`, always pass the minimum number of parameters necessary—do not explicitly pass variables that are already available in the parent view's scope with the same name.
+
 ### Code Documentation
 Always document all new or modified code. Add or update complete PHPDoc/JSDoc blocks for classes, functions, and methods: describe their purpose, every parameter with its type and meaning, and the return type and meaning (`@return` in PHPDoc, `@returns` in JSDoc; use `void` when applicable). Document exceptions, side effects, and data structures where relevant; keep documentation consistent with actual behavior.
 
