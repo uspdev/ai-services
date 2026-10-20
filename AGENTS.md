@@ -27,6 +27,8 @@ Follow `.editorconfig`: four spaces, UTF-8, LF, final newline; YAML uses two spa
 
 Extract buttons and badges (along with their associated modals or scripts) into separate Blade partials whenever doing so improves code organization or enables reuse across views. When calling `@include(...)`, always pass the minimum number of parameters necessary—do not explicitly pass variables that are already available in the parent view's scope with the same name.
 
+When creating or modifying navigation menus in `config/laravel-usp-theme.php`, ensure the corresponding menu item is marked as active on its routes by calling `UspTheme::activeUrl('<menu-url>')` inside the controller action methods (after the `StartSession` middleware has initialized the session, rather than in `__construct()`).
+
 ### Code Documentation
 Always document all new or modified code. Add or update complete PHPDoc/JSDoc blocks for classes, functions, and methods: describe their purpose, every parameter with its type and meaning, and the return type and meaning (`@return` in PHPDoc, `@returns` in JSDoc; use `void` when applicable). Document exceptions, side effects, and data structures where relevant; keep documentation consistent with actual behavior.
 

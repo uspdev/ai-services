@@ -18,15 +18,6 @@ use UspTheme;
 class AiPromptController extends Controller
 {
     /**
-     * Marca o menu Settings -> Prompts de IA como ativo em todas as rotas deste controller.
-     *
-     * @return void
-     */
-    public function __construct()
-    {
-        UspTheme::activeUrl('settings/prompts');
-    }
-    /**
      * Lista todos os serviços de IA e suas respectivas versões de prompts agrupadas por `slug`.
      *
      * Caso a tabela `ai_prompts` ainda não possua as versões iniciais (`v1`), inicializa
@@ -36,6 +27,8 @@ class AiPromptController extends Controller
      */
     public function index(): View
     {
+        UspTheme::activeUrl('settings/prompts');
+
         AiPrompt::ensureDefaultsExist();
 
         $promptsBySlug = AiPrompt::query()
@@ -63,6 +56,8 @@ class AiPromptController extends Controller
      */
     public function edit(AiPrompt $prompt): View
     {
+        UspTheme::activeUrl('settings/prompts');
+
         $activePrompt = AiPrompt::forSlug($prompt->slug)->active()->first() ?? $prompt;
         $nextVersion = ((int) AiPrompt::forSlug($prompt->slug)->max('version')) + 1;
         $metadataKey = AiPrompt::metadataListKey($prompt->slug);
@@ -95,6 +90,8 @@ class AiPromptController extends Controller
      */
     public function update(Request $request, AiPrompt $prompt): RedirectResponse
     {
+        UspTheme::activeUrl('settings/prompts');
+
         $metadataKey = AiPrompt::metadataListKey($prompt->slug);
 
         $rules = [
@@ -193,6 +190,8 @@ class AiPromptController extends Controller
      */
     public function activate(Request $request, AiPrompt $prompt): RedirectResponse
     {
+        UspTheme::activeUrl('settings/prompts');
+
         $prompt->activate();
         $prompt->recordLog(
             'activate',

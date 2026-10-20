@@ -16,6 +16,7 @@ use InvalidArgumentException;
 use JsonException;
 use Laravel\Ai\Exceptions\AiException;
 use RuntimeException;
+use UspTheme;
 
 /**
  * Valida o formulário de elaboração de texto e apresenta os resultados web ou JSON.
@@ -44,6 +45,7 @@ class TextoController extends Controller
      */
     public function index(Request $request): View|JsonResponse|RedirectResponse
     {
+        UspTheme::activeUrl('texto');
         $styles = TextoAgent::styles();
 
         if ($request->isMethod('get')) {

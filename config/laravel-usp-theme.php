@@ -1,10 +1,21 @@
 <?php
 
 $menu = [
-    // [
-    //     'text' => '<i class="fas fa-home"></i> Home',
-    //     'url' => 'home',
-    // ],
+    [
+        'text' => '<i class="fas fa-book"></i> Bibliografia',
+        'url' => 'bibliografia',
+        'can' => 'user',
+    ],
+    [
+        'text' => '<i class="fas fa-graduation-cap"></i> Ementas',
+        'url' => 'ementa',
+        'can' => 'user',
+    ],
+    [
+        'text' => '<i class="fas fa-pen-nib"></i> Elaboração de Textos',
+        'url' => 'texto',
+        'can' => 'user',
+    ],
 ];
 
 $right_menu = [

@@ -15,6 +15,7 @@ use InvalidArgumentException;
 use JsonException;
 use Laravel\Ai\Exceptions\AiException;
 use RuntimeException;
+use UspTheme;
 
 /**
  * Valida o formulário de revisão de ementas e apresenta os resultados web ou JSON.
@@ -40,6 +41,8 @@ class EmentaController extends Controller
      */
     public function index(Request $request): View|JsonResponse|RedirectResponse
     {
+        UspTheme::activeUrl('ementa');
+
         if ($request->isMethod('get')) {
             if ($request->wantsJson()) {
                 return response()->json([

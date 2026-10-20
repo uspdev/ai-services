@@ -17,6 +17,7 @@ use InvalidArgumentException;
 use JsonException;
 use Laravel\Ai\Exceptions\AiException;
 use RuntimeException;
+use UspTheme;
 
 /**
  * Valida o formulário de bibliografia, consulta o Dedalus e apresenta os resultados web ou JSON.
@@ -50,6 +51,7 @@ class BibliografiaController extends Controller
      */
     public function index(Request $request): View|JsonResponse|RedirectResponse
     {
+        UspTheme::activeUrl('bibliografia');
         $standards = BibliografiaAgent::standards();
         if ($request->isMethod('get')) {
             if ($request->wantsJson()) {
