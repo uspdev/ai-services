@@ -4,6 +4,7 @@ Este documento descreve a arquitetura geral de integração da plataforma com o 
 
 Para os detalhes específicos de cada serviço, consulte:
 
+- **[Guia da API e Agentes](api.md)** (endpoints JSON, autenticação, saídas estruturadas e códigos de retorno)
 - **[Documentação do Serviço de Bibliografia](bibliografia.md)** (`BibliografiaController`, `BibliografiaAgent` e `DedalusService`)
 - **[Documentação do Serviço de Ementa](ementa.md)** (`EmentaController` e `EmentaAgent`)
 - **[Documentação do Serviço de Elaboração de Texto](texto.md)** (`TextoController` e `TextoAgent`)
