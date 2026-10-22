@@ -3,6 +3,7 @@
 use App\Http\Controllers\AiPromptController;
 use App\Http\Controllers\BibliografiaController;
 use App\Http\Controllers\EmentaController;
+use App\Http\Controllers\GlossarioController;
 use App\Http\Controllers\TextoController;
 use Illuminate\Support\Facades\Route;
 
@@ -26,6 +27,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('bibliografia/dedalus', [BibliografiaController::class, 'dedalus'])->name('bibliografia.dedalus');
     Route::match(['get', 'post'], 'ementa', [EmentaController::class, 'index'])->name('ementa.index');
     Route::match(['get', 'post'], 'texto', [TextoController::class, 'index'])->name('texto.index');
+    Route::get('glossario', [GlossarioController::class, 'index'])->name('glossario.index');
 
     Route::middleware(['can:manager'])->prefix('settings')->group(function () {
         Route::get('prompts', [AiPromptController::class, 'index'])->name('prompts.index');

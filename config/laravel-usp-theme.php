@@ -16,6 +16,11 @@ $menu = [
         'url' => 'texto',
         'can' => 'user',
     ],
+    [
+        'text' => '<i class="fas fa-book-open"></i> Glossário',
+        'url' => 'glossario',
+        'can' => 'user',
+    ],
 ];
 
 $right_menu = [
