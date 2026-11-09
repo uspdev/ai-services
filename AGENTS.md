@@ -26,6 +26,10 @@ This Laravel 13 application provides USP bibliography formatting and course-desc
 ## Coding Style & Naming Conventions
 Follow `.editorconfig`: four spaces, UTF-8, LF, final newline; YAML uses two spaces. `.styleci.yml` defines the Laravel PHP preset and JS/CSS checks; no local lint script is configured. Use PSR-4 namespaces, PascalCase classes, camelCase methods, and descriptive kebab-case Blade partials such as `copiar-btn.blade.php`. Keep provider integration in services and reusable presentation in partials.
 
+Extract buttons and badges (along with their associated modals or scripts) into separate Blade partials whenever doing so improves code organization or enables reuse across views. When calling `@include(...)`, always pass the minimum number of parameters necessary—do not explicitly pass variables that are already available in the parent view's scope with the same name.
+
+When creating or modifying navigation menus in `config/laravel-usp-theme.php`, ensure the corresponding menu item is marked as active on its routes by calling `UspTheme::activeUrl('<menu-url>')` inside the controller action methods (after the `StartSession` middleware has initialized the session, rather than in `__construct()`).
+
 ### Code Documentation
 Always document all new or modified code. Add or update complete PHPDoc/JSDoc blocks for classes, functions, and methods: describe their purpose, every parameter with its type and meaning, and the return type and meaning (`@return` in PHPDoc, `@returns` in JSDoc; use `void` when applicable). Document exceptions, side effects, and data structures where relevant; keep documentation consistent with actual behavior.
 
@@ -38,7 +42,7 @@ Use PHPUnit 12 for unit/feature tests and Laravel Dusk for browser flows. Name f
 Recent commits favor `feat:` and `fix:` with short, often Portuguese descriptions. Follow that pattern with a focused subject. PRs should describe the behavior change, link relevant issues, report verification commands/results, and include screenshots for UI changes. Call out configuration or migration requirements.
 
 ## Agent-Specific Instructions
-At the end of every feature, provide the user with ready-to-run commands in the final chat response: `git add` listing the specific files belonging to the feature, followed by `git commit -m "<commit message>"` with an appropriate message. Exclude unrelated changes; do not use `git add .`. Never execute a commit automatically under any circumstances; the user must run the commit command manually.
+At the end of every feature, provide the user with ready-to-run commands in the final chat response: `git add` listing the specific files belonging to the feature, followed by `git commit -m "<commit message>"` with an appropriate message. Exclude unrelated changes; do not use `git add .`. Never execute a commit automatically; only execute `git commit` directly after explicit confirmation from the user.
 
 ## Security & Configuration Tips
 Keep credentials in `.env`; never commit real keys. Configure `AI_PROVIDER`, `LITELLM_URL`, `LITELLM_API_KEY`, and `LITELLM_MODEL` through `config/ai.php`. `config/aiService.php` only holds the response-cache retention from `AI_CACHE_RETENTION`. Preserve the existing prompts and authentication on bibliography and syllabus routes.

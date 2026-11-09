@@ -1,13 +1,40 @@
 <?php
 
 $menu = [
-    // [
-    //     'text' => '<i class="fas fa-home"></i> Home',
-    //     'url' => 'home',
-    // ],
+    [
+        'text' => '<i class="fas fa-book"></i> Bibliografia',
+        'url' => 'bibliografia',
+        'can' => 'user',
+    ],
+    [
+        'text' => '<i class="fas fa-graduation-cap"></i> Ementas',
+        'url' => 'ementa',
+        'can' => 'user',
+    ],
+    [
+        'text' => '<i class="fas fa-pen-nib"></i> Elaboração de Textos',
+        'url' => 'texto',
+        'can' => 'user',
+    ],
+    [
+        'text' => '<i class="fas fa-book-open"></i> Glossário',
+        'url' => 'glossario',
+        'can' => 'user',
+    ],
 ];
 
 $right_menu = [
+    [
+        'text' => '<i class="fas fa-cog"></i> Settings',
+        'can' => 'manager',
+        'submenu' => [
+            [
+                'text' => '<i class="fas fa-sliders-h"></i> Prompts de IA',
+                'url' => 'settings/prompts',
+                'can' => 'manager',
+            ],
+        ],
+    ],
     [
         // menu utilizado para views da biblioteca senhaunica-socialite.
         'key' => 'senhaunica-socialite',

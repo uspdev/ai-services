@@ -91,64 +91,46 @@
 
           </div>
         </div>
-    </div>
 
-    <div class="row">
-      <div class="col-md-6">
-        <label class="ml-2 font-weight-bold">Alterações</label>
-        <div id="referencias-diff" class="form-control diff-container"></div>
-      </div>
-
-      <div class="col-md-6">
-        <div class="form-group">
-          <div>
-            <label class="mx-2 font-weight-bold" for="resposta">Texto corrigido</label>
-            <span class="pb-2">@include('ementa.partials.copiar-btn')</span>
+        <div class="row">
+          <div class="col-md-6">
+            <label class="ml-2 font-weight-bold">Alterações</label>
+            <div id="referencias-diff" class="form-control diff-container"></div>
           </div>
 
-          <div id="resposta" class="form-control resposta-editavel usptheme-contador" contenteditable="true">
-            <div class="">
-              <b>Ementa</b>
-              {{-- Mantém as quebras de linha e apresenta o conteúdo como texto. --}}
-              <div class="mb-2">{!! nl2br(e($resposta['ementa']['pt'])) !!}</div>
-              <div class="font-italic mb-2" lang="en" spellcheck="true">{!! nl2br(e($resposta['ementa']['en'])) !!}</div>
-            </div>
-            <div class="">
-              <br>
-              <b>Objetivos</b>
-              <div class="mb-2">{!! nl2br(e($resposta['objetivos']['pt'])) !!}</div>
-              <div class="font-italic mb-2" lang="en" spellcheck="true">{!! nl2br(e($resposta['objetivos']['en'])) !!}</div>
-            </div>
-            <div class="">
-              <br>
-              <b>Conteúdo Programático</b>
-              <div class="mb-2">{!! nl2br(e($resposta['conteudo_programatico']['pt'])) !!}</div>
-              <div class="font-italic mb-2" lang="en" spellcheck="true">{!! nl2br(e($resposta['conteudo_programatico']['en'])) !!}</div>
+          <div class="col-md-6">
+            <div class="form-group">
+              <div>
+                <label class="mx-2 font-weight-bold" for="resposta">Texto corrigido</label>
+                <span class="pb-2">@include('ementa.partials.copiar-btn')</span>
+              </div>
+
+              <div id="resposta" class="form-control resposta-editavel usptheme-contador" contenteditable="true">
+                <div class="">
+                  <b>Ementa</b>
+                  {{-- Mantém as quebras de linha e apresenta o conteúdo como texto. --}}
+                  <div class="mb-2">{!! nl2br(e($resposta['ementa']['pt'])) !!}</div>
+                  <div class="font-italic mb-2" lang="en" spellcheck="true">{!! nl2br(e($resposta['ementa']['en'])) !!}</div>
+                </div>
+                <div class="">
+                  <br>
+                  <b>Objetivos</b>
+                  <div class="mb-2">{!! nl2br(e($resposta['objetivos']['pt'])) !!}</div>
+                  <div class="font-italic mb-2" lang="en" spellcheck="true">{!! nl2br(e($resposta['objetivos']['en'])) !!}</div>
+                </div>
+                <div class="">
+                  <br>
+                  <b>Conteúdo Programático</b>
+                  <div class="mb-2">{!! nl2br(e($resposta['conteudo_programatico']['pt'])) !!}</div>
+                  <div class="font-italic mb-2" lang="en" spellcheck="true">{!! nl2br(e($resposta['conteudo_programatico']['en'])) !!}</div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
-      </div>
-    </div>
-  @else
-    <div id="error-bibliografia" class="alert alert-info">
-      @foreach ($explicacoes ?? [] as $index => $texto)
-        <div class="explicacao-item" data-index="{{ $index }}">{{ $index }}: {{ $texto }}
-        </div>
-      @endforeach
-    </div>
-    @endif
+      @endif
 
-    {{-- @if ($estatisticas ?? [])
-        <hr>
-        <div class="small text-muted">
-          <pre>Estatísticas:
-            {{ print_r($estatisticas, true) }}
-            Prompt:
-            {{ $prompt ?? '' }}
-        </pre>
-        </div>
-      @endif --}}
-
+    </div>
   </div>
 @endsection
 

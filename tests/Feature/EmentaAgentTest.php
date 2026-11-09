@@ -91,6 +91,8 @@ class EmentaAgentTest extends TestCase
         ], $request['messages']);
         $this->assertArrayNotHasKey('tools', $request->data());
         $this->assertSame('json_schema', $request['response_format']['type']);
+        // Mantém o modo estrito mesmo com as instruções resolvidas pelo banco de prompts.
+        $this->assertTrue($request['response_format']['json_schema']['strict']);
     }
 
     /**

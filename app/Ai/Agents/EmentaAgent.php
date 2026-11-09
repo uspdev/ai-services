@@ -5,13 +5,13 @@ namespace App\Ai\Agents;
 use App\Models\AiPrompt;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\JsonSchema\Types\Type;
+use Laravel\Ai\Attributes\Strict;
 use Laravel\Ai\Contracts\Agent;
 use Laravel\Ai\Contracts\HasStructuredOutput;
 use Laravel\Ai\Promptable;
-use Laravel\Ai\Attributes\Strict;
 
 /**
- * Revisa ementas com o prompt existente e uma saída estruturada em português e inglês.
+ * Revisa ementas com o prompt de revisão acadêmica e uma saída estruturada em português e inglês.
  *
  * O texto a revisar é enviado a prompt(). Cada chamada é independente, sem
  * contexto de conversa, tools ou parâmetros adicionais de disciplina e área.
@@ -19,26 +19,101 @@ use Laravel\Ai\Attributes\Strict;
 #[Strict]
 class EmentaAgent implements Agent, HasStructuredOutput
 {
+    /** @var string Identificador do serviço de ementa na tabela `ai_prompts`. */
+    public const SLUG = 'ementa';
+
     use Promptable;
 
     /**
-     * Obtém as instruções de avaliação acadêmica e revisão bilíngue de AiPrompt.
-     * A avaliação, a tradução e o tom acadêmico dependem dessas instruções;
-     * a estrutura de objetos e campos obrigatórios é definida em schema().
+     * Define opcionalmente uma versão específica do prompt para execução ou homologação.
      *
-     * @return string Regras de conteúdo acadêmico sem exemplo de JSON.
+     * @param int|null $version Versão específica do prompt no banco (opcional; `null` usa a ativa).
+     * @return void
      */
-    public function instructions(): string
+    public function __construct(
+        private ?int $version = null,
+    ) {}
+
+    /**
+     * Retorna o template padrão (v1) de instruções de revisão de ementas para seeder e fallback.
+     *
+     * @return string Regras acadêmicas e de tradução, sem repetir a estrutura JSON definida em schema().
+     */
+    public static function defaultTemplate(): string
     {
-        // O SDK envia o formato a partir de schema(). AiPrompt mantém as orientações
-        // de revisão e tradução, sem repetir o objeto JSON esperado nas instruções.
-        return AiPrompt::systemPrompt('ementa');
+        return <<<'PROMPT'
+You are an Academic and Curriculum Reviewer specializing in curriculum design across all fields, including STEM, Humanities, Life Sciences, Social Sciences, and Engineering.
+
+Review course descriptions, learning objectives, syllabi, and academic/pedagogical texts in the context of the University of São Paulo (USP).
+
+INPUT:
+The user may provide:
+
+1. Structured JSON with fields such as `ementa`, `objetivos`, and `conteudo_programatico`, optionally containing `pt` and `en`.
+2. Free text using labels such as Ementa/Course Description, Objetivos/Objectives, and Conteúdo Programático/Full Program, including Markdown or tag delimiters.
+
+Identify the Portuguese and English versions of each section:
+
+- Ementa / Course Description
+- Objetivos / Objectives
+- Conteúdo Programático / Full Program
+
+If an English section is missing, empty, or contains only its default heading, set its status to `ausente` and provide an accurate technical translation.
+If English is present, assess its technical and semantic equivalence to Portuguese and revise it when necessary.
+
+EVALUATION:
+
+1. QUALITY SCORE (0–100)
+
+- 90–100: Excellent; minimal or no changes.
+- 70–89: Good; minor grammar, formatting, or clarity issues.
+- 50–69: Fair; noticeable grammar, terminology, clarity, or redundancy issues.
+- Below 50: Insufficient; major structural, writing, or technical problems.
+
+Provide a 1–2 sentence justification.
+
+2. ANALYSIS
+
+Evaluate each language separately:
+
+Portuguese (`pt`):
+
+- Grammar, spelling, agreement, and punctuation.
+- Academic writing, pedagogical clarity, conciseness, redundancy, and syntactic parallelism.
+- Technical terminology and conceptual precision.
+
+English (`en`):
+
+- `status`: `presente` = complete; `parcial` = incomplete or missing parts; `ausente` = no meaningful English text.
+- Assess spelling, grammar, punctuation, academic tone, clarity, PT equivalence, and field-specific terminology; explain when English is absent.
+
+3. REVISION
+
+Provide final polished versions in Portuguese and English for all three sections. Ensure technical accuracy, consistency, homogeneous style, and suitability for inclusion in a PPC or syllabus.
+
+Use a neutral, professional, concise, and evidence-based academic tone.
+
+PROMPT;
     }
 
     /**
-     * Define os objetos e campos obrigatórios de avaliação, análise e revisão.
-     * Os objetos bilíngues e o status do inglês continuam exigidos pelo SDK,
-     * mesmo após remover o exemplo de retorno JSON das instruções do agente.
+     * Resolve as instruções de revisão acadêmica a partir do banco de dados (ou fallback padrão).
+     *
+     * @return string Prompt resolvido de ementa, incluindo seu exemplo de JSON.
+     */
+    public function instructions(): string
+    {
+        // O banco seleciona a versão; o SDK define o formato JSON por meio de schema().
+        return AiPrompt::resolve(
+            self::SLUG,
+            self::defaultTemplate(),
+            [],
+            $this->version,
+        );
+    }
+
+    /**
+     * Declara os objetos e campos obrigatórios já descritos no prompt de ementa.
      *
      * @param JsonSchema $schema Construtor de tipos JSON Schema fornecido pelo SDK.
      * @return array<string, Type> Avaliação, explicações e versões revisadas nos dois idiomas.

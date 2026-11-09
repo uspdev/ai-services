@@ -1,87 +1,91 @@
-# Implementação do Laravel AI SDK no Laravel 13
+# Arquitetura Geral e Integração com o Laravel AI SDK
 
-Este documento explica a integração de bibliografia e revisão de ementas com o Laravel AI SDK na aplicação Laravel 13. Ele descreve as responsabilidades dos arquivos, os contratos de dados, a execução pelo LiteLLM, as validações, o cache, as estatísticas e a apresentação dos resultados.
+Este documento descreve a arquitetura geral de integração da plataforma com o Laravel AI SDK, abordando a configuração do gateway LiteLLM, o versionamento de prompts em banco de dados, a execução compartilhada no `AiService`, a validação estruturada, o cache de respostas, as estatísticas, o tratamento de falhas e a suíte de testes.
 
-Este guia serve como referência para entender e manter a implementação existente e os ajustes de compatibilidade do Laravel 13. O [guia do sistema de logs](sistema-de-logs.md) detalha os canais gerais e de IA, a configuração, o visualizador administrativo e a retenção dos arquivos.
+Para os detalhes específicos de cada serviço, consulte:
+
+- **[Guia da API e Agentes](api.md)** (endpoints JSON, autenticação, saídas estruturadas e códigos de retorno)
+- **[Documentação do Serviço de Bibliografia](bibliografia.md)** (`BibliografiaController`, `BibliografiaAgent` e `DedalusService`)
+- **[Documentação do Serviço de Ementa](ementa.md)** (`EmentaController` e `EmentaAgent`)
+- **[Documentação do Serviço de Elaboração de Texto](texto.md)** (`TextoController` e `TextoAgent`)
 
 ## Índice
 
 - [1. Visão geral e dependências](#1-visão-geral-e-dependências)
 - [2. Organização do código](#2-organização-do-código)
 - [3. Configuração do SDK e do LiteLLM](#3-configuração-do-sdk-e-do-litellm)
-- [4. Prompts, instruções e entrada do usuário](#4-prompts-instruções-e-entrada-do-usuário)
-- [5. Agente de bibliografia](#5-agente-de-bibliografia)
-- [6. Agente de ementa](#6-agente-de-ementa)
-- [7. Execução compartilhada no AiService](#7-execução-compartilhada-no-aiservice)
+- [4. Versionamento de prompts no banco de dados](#4-versionamento-de-prompts-no-banco-de-dados)
+- [5. Execução compartilhada no AiService](#5-execução-compartilhada-no-aiservice)
+- [6. Validação da resposta](#6-validação-da-resposta)
+- [7. Cache de respostas](#7-cache-de-respostas)
+- [8. Estatísticas](#8-estatísticas)
+- [9. Tratamento de falhas](#9-tratamento-de-falhas)
+- [10. Componentes compartilhados de interface](#10-componentes-compartilhados-de-interface)
+- [11. Testes e verificações](#11-testes-e-verificações)
+- [12. Orientações para manutenção e novos agentes](#12-orientações-para-manutenção-e-novos-agentes)
 
+---
 
 ## 1. Visão geral e dependências
 
-A integração usa `laravel/ai` com o requisito `^1.2@stable` em [composer.json](../composer.json). O projeto exige PHP `^8.3` e Laravel `^13.0`. As versões registradas em [composer.lock](../composer.lock) são:
+A integração utiliza `laravel/ai` (`^1.2@stable`) em [composer.json](../composer.json) sobre PHP `^8.3` e Laravel 13.
 
-| Dependência | Versão instalada |
-| --- | --- |
-| `laravel/framework` | 13.36.0 |
-| `laravel/ai` | 1.2.0 |
-| `laravel/tinker` | 3.0.2 |
-| `phpunit/phpunit` | 12.5.39 |
-| `rap2hpoutre/laravel-log-viewer` | 3.0.0 |
-| `uspdev/laravel-tools` | 1.6.0 |
+A atualização usa Tinker 3 e PHPUnit 12. O middleware local [VerifyCsrfToken](../app/Http/Middleware/VerifyCsrfToken.php) e a configuração do Sanctum usam `PreventRequestForgery`. A dependência `rap2hpoutre/laravel-log-viewer` mantém o alias `3.0.0 as 2.5.0` para compatibilidade com `uspdev/laravel-tools` e seus links criptografados; as views do pacote não são sobrescritas.
 
-O upgrade preserva o SDK, os agentes, os prompts, a estrutura de inicialização existente e a configuração de sessão e cache. Em uma instalação existente, `composer install` aplica as versões do lockfile.
-
-O `laravel-tools` 1.6.0 exige Log Viewer `^2.2`, mas essa série não aceita Laravel 13. O requisito `3.0.0 as 2.5.0` instala o Log Viewer 3.0.0 e satisfaz a restrição do pacote USP por meio de um alias do Composer. Essa versão mantém o contrato `Crypt::encrypt()`/`Crypt::decrypt()` dos links das views originais do pacote USP, usadas diretamente sem publicação ou sobrescrita na aplicação. A versão exata gera um aviso esperado em `composer validate`; o alias deve ser reavaliado quando o pacote USP aceitar Log Viewer 3 diretamente, verificando também a compatibilidade dos links.
-
-Cada POST válido executa um fluxo síncrono: a aplicação aguarda o resultado ou uma falha para responder. Uma entrada já processada pode ser atendida pelo cache sem chamar o modelo novamente.
+Cada requisição `POST` válida executa um fluxo síncrono: a aplicação valida os parâmetros de entrada, resolve o agente correspondente, busca a versão ativa do prompt no banco de dados (ou utiliza o template padrão em código como fallback), e aguarda a resposta estruturada do gateway ou uma falha tratada. Uma entrada já processada sob a mesma versão de prompt, schema e modelo é atendida diretamente pelo cache.
 
 ```mermaid
 flowchart TD
     U[Usuário ou cliente JSON] --> R[Rotas web autenticadas]
-    R --> C[BibliografiaController]
+    R --> C[Controller do serviço<br/>BibliografiaController / EmentaController]
     C --> S[AiService]
     S --> K{Resultado em cache?}
     K -->|Sim| D[Array estruturado e estatísticas]
-    K -->|Não| A[Agente de bibliografia ou ementa]
-    P[AiPrompt] -->|Instruções existentes| A
+    K -->|Não| A[Agente específico<br/>BibliografiaAgent / EmentaAgent]
+    P[(AiPrompt - BD + Cache)] -->|Versão ativa ou selecionada| A
     A --> SDK[Laravel AI SDK]
     SDK --> L[LiteLLM]
     L --> M[Modelo configurado]
     M --> L
     L --> SDK
-    SDK --> V[Validações do agente e do serviço]
+    SDK --> V[Correspondência das listas e término da geração]
     V -->|Resultado válido| W[Gravação em cache quando habilitado]
     W --> D
-    V -->|Falha| E[Tratamento de erro no controller]
+    V -->|Falha| E[Trait HandlesAiFailures]
     D --> O[View Blade ou JSON de sucesso]
     E --> F[Retorno ao formulário ou JSON de erro]
 ```
 
-Os agentes utilizados pelos endpoints não implementam `Conversational` nem `HasTools`. O fluxo não mantém histórico de conversa e não utiliza streaming, filas, embeddings ou RAG. A migração não acrescentou tabelas de conversas nem uma estrutura de persistência de estatísticas.
+Os agentes implementam `Laravel\Ai\Contracts\Agent` e `HasStructuredOutput`, sem utilizar `Conversational` nem `HasTools`. O fluxo é independente por requisição, sem histórico de conversa, streaming ou filas.
+
+---
 
 ## 2. Organização do código
 
-| Arquivo | Responsabilidade na integração |
+| Arquivo | Responsabilidade na arquitetura |
 | --- | --- |
 | [composer.json](../composer.json) e [composer.lock](../composer.lock) | Declarar a dependência do SDK e registrar as versões instaladas. |
 | [config/ai.php](../config/ai.php) | Selecionar provider, driver, URL, chave e modelo de texto. |
-| [config/aiService.php](../config/aiService.php) | Definir a retenção do cache de respostas. |
-| [config/cache.php](../config/cache.php) | Escolher o armazenamento usado pela facade `Cache`. |
-| [config/logging.php](../config/logging.php) | Configurar canais, níveis e habilitação da captura das chamadas de IA. |
-| [app/Services/AiConversationLogger.php](../app/Services/AiConversationLogger.php) | Correlacionar entrada, tráfego HTTP, resultado e erros de cada execução de IA. |
-| [app/Logging/AiConversationFormatter.php](../app/Logging/AiConversationFormatter.php) | Apresentar os eventos em blocos legíveis com cabeçalho compatível com o Log Viewer. |
-| [app/Providers/AppServiceProvider.php](../app/Providers/AppServiceProvider.php) | Compartilhar o logger na requisição e registrar os listeners HTTP da captura. |
-| [app/Models/AiPrompt.php](../app/Models/AiPrompt.php) | Manter as regras de conteúdo dos prompts e a lista de normas bibliográficas. |
-| [app/Ai/Agents/BibliografiaAgent.php](../app/Ai/Agents/BibliografiaAgent.php) | Fornecer instruções, schema e verificação das quatro listas bibliográficas. |
-| [app/Ai/Agents/EmentaAgent.php](../app/Ai/Agents/EmentaAgent.php) | Fornecer instruções e schema da revisão bilíngue. |
-| [app/Services/AiService.php](../app/Services/AiService.php) | Executar agentes, validar resultados, administrar cache e normalizar estatísticas. |
-| [app/Http/Controllers/BibliografiaController.php](../app/Http/Controllers/BibliografiaController.php) | Validar requisições, criar os agentes e apresentar sucesso ou falha nos dois serviços. |
-| [routes/web.php](../routes/web.php) | Registrar os endpoints de bibliografia e ementa com autenticação. |
-| [app/Http/Middleware/VerifyCsrfToken.php](../app/Http/Middleware/VerifyCsrfToken.php) e [config/sanctum.php](../config/sanctum.php) | Aplicar a proteção de origem e token do Laravel 13 por meio de `PreventRequestForgery`. |
-| [resources/views/bibliografia/index.blade.php](../resources/views/bibliografia/index.blade.php) | Apresentar referências revisadas, explicações e confiança. |
-| [resources/views/ementa/index.blade.php](../resources/views/ementa/index.blade.php) | Apresentar nota, análises e textos revisados em português e inglês. |
-| [tests/Feature](../tests/Feature) | Verificar configuração, agentes, serviço e respostas HTTP. |
+| [config/aiService.php](../config/aiService.php) | Definir a retenção do cache de respostas e o período dos logs de alterações de prompts. |
+| [config/logging.php](../config/logging.php) | Configurar os canais gerais e o log opcional das chamadas de IA. |
+| [app/Services/AiConversationLogger.php](../app/Services/AiConversationLogger.php) e [app/Logging/AiConversationFormatter.php](../app/Logging/AiConversationFormatter.php) | Correlacionar e apresentar entrada, tráfego HTTP, resultados, cache e falhas de IA. |
+| [app/Enums/PromptStatus.php](../app/Enums/PromptStatus.php) | Enum com o ciclo de vida das versões de prompt (`draft`, `active`, `archived`). |
+| [app/Models/AiPrompt.php](../app/Models/AiPrompt.php) | Model Eloquent agnóstico para persistência, versionamento, cache e interpolação de prompts. |
+| [database/migrations/2026_10_19_000000_create_ai_prompts_table.php](../database/migrations/2026_10_19_000000_create_ai_prompts_table.php) | Criar a tabela única `ai_prompts` com controle de `slug`, `version` e `status`. |
+| [database/seeders/AiPromptSeeder.php](../database/seeders/AiPromptSeeder.php) | Popular de forma idempotente a versão inicial (`v1`) dos prompts no banco. |
+| [app/Ai/Agents/BibliografiaAgent.php](../app/Ai/Agents/BibliografiaAgent.php) | Agente de bibliografia: normas suportadas, template padrão, schema e validação das quatro listas. |
+| [app/Ai/Agents/EmentaAgent.php](../app/Ai/Agents/EmentaAgent.php) | Agente de ementa: template padrão e schema de revisão bilíngue. |
+| [app/Ai/Agents/TextoAgent.php](../app/Ai/Agents/TextoAgent.php) | Agente de elaboração de textos: estilos suportados, template padrão e schema de perguntas/texto elaborado. |
+| [app/Services/AiService.php](../app/Services/AiService.php) | Executar agentes estruturados, conferir o término, registrar chamadas, administrar cache e normalizar estatísticas. |
+| [app/Traits/HandlesAiFailures.php](../app/Traits/HandlesAiFailures.php) | Trait compartilhada entre controllers para converter exceções da IA em respostas web/JSON seguras. |
+| [app/Http/Controllers/BibliografiaController.php](../app/Http/Controllers/BibliografiaController.php) | Validar e atender requisições de `/bibliografia` (`bibliografia.index`). |
+| [app/Http/Controllers/EmentaController.php](../app/Http/Controllers/EmentaController.php) | Validar e atender requisições de `/ementa` (`ementa.index`). |
+| [app/Http/Controllers/TextoController.php](../app/Http/Controllers/TextoController.php) | Validar e atender requisições de `/texto` (`texto.index`). |
+| [app/Http/Controllers/AiPromptController.php](../app/Http/Controllers/AiPromptController.php) | Gerenciar listagem, edição, versionamento e ativação de prompts em `/settings/prompts` (`can:manager`). |
+| [routes/web.php](../routes/web.php) | Registrar as rotas autenticadas dos serviços e o grupo `settings/prompts`. |
+| [tests/Feature](../tests/Feature) | Verificar configuração, versionamento e CRUD de prompts, agentes, serviço e respostas HTTP. |
 
-Apesar do nome, `BibliografiaController` contém tanto `bibliografia()` quanto `ementa()`. O Laravel resolve `AiService` pela injeção no construtor do controller. Não há binding específico desse serviço em `AppServiceProvider`.
+---
 
 ## 3. Configuração do SDK e do LiteLLM
 
@@ -95,9 +99,8 @@ LITELLM_URL=http://localhost:4000
 LITELLM_API_KEY=
 LITELLM_MODEL=gemini-flash
 AI_CACHE_RETENTION=604800
+AI_CONVERSATION_LOG_ENABLED=${APP_DEBUG}
 ```
-
-`gemini-flash` é um exemplo de alias. O valor efetivo deve corresponder a um modelo exposto pelo gateway. O driver usa o protocolo compatível com OpenAI mesmo quando o LiteLLM encaminha a geração a outro fornecedor.
 
 | Variável | Configuração consumida | Efeito |
 | --- | --- | --- |
@@ -106,9 +109,8 @@ AI_CACHE_RETENTION=604800
 | `LITELLM_API_KEY` | `ai.providers.litellm.key` | Autentica a chamada ao gateway. |
 | `LITELLM_MODEL` | `ai.providers.litellm.models.text.default` | Define o alias enviado no campo `model`. |
 | `AI_CACHE_RETENTION` | `aiService.cacheRetention` | Define, em segundos, a retenção dos resultados válidos. |
-| `CACHE_DRIVER` | `cache.default` | Escolhe o armazenamento do cache de respostas deste projeto. |
-
-As credenciais são lidas do ambiente pelo arquivo de configuração. O serviço consome `config()`, mantendo a integração compatível com o cache de configuração do Laravel.
+| `AI_CONVERSATION_LOG_ENABLED` | `logging.ai_conversations_enabled` | Habilita o registro completo das chamadas feitas pelo serviço. |
+| `CACHE_DRIVER` | `cache.default` | Escolhe o armazenamento do cache de respostas e de prompts. |
 
 ### 3.2 Normalização da URL
 
@@ -121,185 +123,76 @@ As credenciais são lidas do ambiente pelo arquivo de configuração. O serviço
 | `http://localhost:4000/v1/` | `http://localhost:4000/v1` | `http://localhost:4000/v1/chat/completions` |
 | `https://gateway.example.com/proxy` | `https://gateway.example.com/proxy/v1` | `https://gateway.example.com/proxy/v1/chat/completions` |
 
-Uma URL vazia permanece `null`, permitindo que a configuração ausente seja detectada. O prefixo `/v1` preserva o endpoint usado pelo projeto antes da migração; ele é uma escolha desta configuração.
-
 ### 3.3 Seleção de provider e modelo
 
 `AiService::submit()` obtém o nome da conexão com `Ai::getDefaultInstance()` e resolve seu modelo com `Ai::textProvider($provider)->defaultTextModel()`.
 
-Por isso, o serviço respeita `AI_PROVIDER` e não fixa `litellm` no código de execução. Ao escolher outra conexão, suas credenciais e seu modelo padrão precisam estar configurados de acordo com o driver selecionado. O driver `openai-compatible` exige um modelo de texto padrão nessa utilização do serviço.
+---
 
-Os outros providers e as opções `default_for_*` de `config/ai.php` vieram da configuração publicada pelo SDK. Bibliografia e ementa utilizam apenas a operação de texto. O bloco `caching.embeddings` também pertence ao SDK e não controla o cache de respostas do `AiService`.
+## 4. Versionamento de prompts no banco de dados
 
-## 4. Prompts, instruções e entrada do usuário
+Os prompts são armazenados na tabela única `ai_prompts`, gerenciada pelo model [`AiPrompt`](../app/Models/AiPrompt.php) e pelo enum [`PromptStatus`](../app/Enums/PromptStatus.php).
 
-`AiPrompt` permanece como fonte dos textos. Os agentes chamam:
+### 4.1 Ciclo de vida (`PromptStatus`)
 
-```php
-// Bibliografia: a norma altera somente a interpolação já existente no prompt.
-AiPrompt::systemPrompt('bibliografia', ['standard' => $this->standard]);
-
-// Ementa: utiliza o prompt existente sem parâmetros adicionais.
-AiPrompt::systemPrompt('ementa');
-```
-
-`systemPrompt()` seleciona o conteúdo pelo identificador do serviço. Na bibliografia, a norma é interpolada nas regras de formatação e são mantidas as orientações de conteúdo, consulta ao Dedalus e confiança. Na ementa, são preservadas as instruções acadêmicas, a avaliação e a revisão bilíngue. Os blocos que exigiam JSON e repetiam sua estrutura foram retirados: os métodos `schema()` dos agentes definem o formato enviado pelo SDK.
-
-O conteúdo do usuário é passado separadamente a `prompt($input, ...)`. No driver configurado, o SDK monta uma mensagem `system` com as instruções e uma mensagem `user` com a entrada. Os controllers não concatenam o texto do formulário às instruções e não montam manualmente o envelope Chat Completions.
-
-Os métodos antigos `AiPrompt::render()` e `renderFromPrompt()` continuam disponíveis, mas não são utilizados pelo fluxo migrado. Os controllers ainda obtêm `systemPrompt()` para preencher a chave pública `prompt` no resultado; a execução usa as instruções fornecidas pelo agente.
-
-O schema representa tipos e campos em código, enquanto o prompt descreve o trabalho a realizar e o significado do conteúdo. A retirada dos blocos de serialização mantém os contratos atuais e altera as instruções que participam da chave de cache, evitando reutilizar respostas geradas com o prompt anterior. A qualidade do conteúdo real deve ser comparada usando o gateway configurado, além dos testes estruturais com HTTP simulado.
-
-## 5. Agente de bibliografia
-
-### 5.1 Interfaces e construção
-
-`BibliografiaAgent` implementa `Laravel\Ai\Contracts\Agent` e `HasStructuredOutput`. O trait `Promptable` oferece a execução pelo SDK.
-
-Seu construtor recebe uma string `$standard`. A validação dessa norma ocorre no controller antes da criação do agente, usando `Rule::in(AiPrompt::getBibliografiaStandards())`.
-
-As opções atuais são:
-
-- `ABNT NBR 6023:2025`;
-- `APA 7th Edition`;
-- `Vancouver Style`;
-- `IEEE Citation Style`.
-
-O construtor não repete essa validação. Quem instanciar o agente fora do controller deve fornecer uma norma adequada ao seu caso de uso.
-
-### 5.2 Schema das quatro listas
-
-`schema()` recebe um construtor de tipos `JsonSchema` do Laravel e retorna as definições dos campos:
-
-| Campo | Tipo e restrições | Uso |
+| Status | Significado | Comportamento |
 | --- | --- | --- |
-| `referencias` | Lista obrigatória de strings. | Referências corrigidas na norma solicitada. |
-| `explicacoes` | Lista obrigatória de strings. | Ajustes relativos a cada referência. |
-| `busca_dedalus` | Lista obrigatória de objetos com `autor` e `titulo`, ambos strings obrigatórias. | Dados preparados para consulta ao catálogo. |
-| `confiancas` | Lista obrigatória de inteiros entre 0 e 100. | Confiança associada a cada referência. |
+| `draft` (`PromptStatus::Draft`) | **Rascunho (Futura)** | Versão em elaboração ou homologação. Pode ser testada informando explicitamente seu número de versão, sem afetar a produção. |
+| `active` (`PromptStatus::Active`) | **Ativa (Produção)** | Versão oficial utilizada por padrão nas chamadas do serviço. Existe apenas uma versão `active` por `slug`. |
+| `archived` (`PromptStatus::Archived`) | **Arquivada (Passada)** | Versão anterior substituída e preservada para histórico, auditoria e rollback imediato. |
 
-As quatro listas preservam o formato já descrito no prompt. A associação entre referência, explicação, busca e confiança utiliza o mesmo índice.
-
-Exemplo ilustrativo do array devolvido pelo agente:
-
-```json
-{
-  "referencias": ["Referência revisada A."],
-  "explicacoes": ["Pontuação revisada."],
-  "busca_dedalus": [{"autor": "Autor A", "titulo": "Título A"}],
-  "confiancas": [90]
-}
-```
-
-Esse exemplo demonstra o contrato de dados; não representa uma referência validada segundo uma norma acadêmica.
-
-### 5.3 Por que o agente redefine prompt()
-
-O agente declara um alias privado para o método do trait:
+### 4.2 Operações de evolução e rollback
 
 ```php
-use Promptable {
-    prompt as private promptViaSdk;
-}
+use App\Models\AiPrompt;
+
+// 1. Obter a versão ativa atual de um serviço:
+$v1 = AiPrompt::findActive('ementa');
+
+// 2. Criar uma nova versão futura (draft) a partir da atual:
+$v2 = $v1->createNextDraft('Ajuste nas diretrizes de tradução técnica.');
+$v2->update(['system_prompt' => '...novo texto do prompt...']);
+
+// 3. Promover a v2 para produção (arquiva automaticamente a v1 e limpa o cache):
+$v2->activate();
+
+// 4. Rollback imediato para a v1 se necessário:
+$v1->activate();
 ```
 
-Seu próprio `prompt()` delega a chamada a `promptViaSdk()`, preservando os argumentos de entrada, anexos, provider, modelo e timeout. Depois da execução, exige uma `StructuredAgentResponse` e chama `validateCorrespondence()`.
+### 4.3 Resolução e fallback (`AiPrompt::resolve`)
 
-`validateCorrespondence()` percorre os quatro campos. Cada campo deve ser um array que satisfaça `array_is_list()`. A primeira lista fornece a contagem de referência para comparar as demais; uma lista ausente, um formato incorreto ou um tamanho diferente gera `RuntimeException`.
+Os agentes resolvem suas instruções por meio de `AiPrompt::resolve($slug, $fallbackTemplate, $params, $version)`:
 
-Essa validação fica no agente porque o schema descreve cada lista individualmente e não compara comprimentos entre campos. A validação recursiva de tipos e valores é feita pelo serviço antes de armazenar a resposta.
+1. Se `$version` for informado (ex.: `new EmentaAgent(version: 2)`), busca especificamente aquela versão no banco (inclusive se estiver em `draft`).
+2. Se `$version` for `null`, busca a versão `active` no banco utilizando o cache `ai_prompt:{slug}:active`.
+3. Caso o banco de dados ainda não esteja migrado ou não possua versão ativa para o `slug`, utiliza o `$fallbackTemplate` fornecido pelo próprio agente (`BibliografiaAgent::defaultTemplate()`, `EmentaAgent::defaultTemplate()` ou `TextoAgent::defaultTemplate()`).
 
-A verificação implementada compara o tamanho das listas de saída. Ela não conta referências na entrada, não comprova a associação semântica entre os itens e não exige listas não vazias. Esses aspectos dependem das instruções e do conteúdo gerado.
+Os templates padrão de bibliografia e ementa contêm as regras de conteúdo, sem repetir exemplos de JSON ou exigências de serialização. O formato é definido pelos métodos `schema()` e enviado pelo SDK. A resolução de versões não altera os textos já salvos no banco; novos registros e a restauração do padrão usam os templates simplificados.
 
-## 6. Agente de ementa
+### 4.4 Interface web de gerenciamento (`/settings/prompts`)
 
-`EmentaAgent` também implementa `Agent` e `HasStructuredOutput`, utilizando `Promptable`. Ele não redefine `prompt()`: a execução é a do trait, e as verificações locais de estrutura ficam no `AiService`.
+Usuários com a permissão `can:manager` dispõem do menu **Settings -> Prompts de IA** (`/settings/prompts`), atendido por [`AiPromptController`](../app/Http/Controllers/AiPromptController.php):
 
-`instructions()` retorna `AiPrompt::systemPrompt('ementa')`. O schema exige três objetos na raiz:
+- **Listagem agrupada por serviço (`GET /settings/prompts`)**: inicializa automaticamente os registros padrão (`AiPrompt::ensureDefaultsExist()`) caso a tabela `ai_prompts` esteja vazia e exibe o histórico de versões (`v1`, `v2`, ...) de cada `slug`, indicando qual versão está ativa em produção e permitindo alternar a versão ativa com um clique (`PATCH /settings/prompts/{prompt}/activate`). Não há criação livre de novos slugs nem exclusão de versões.
+- **Edição com versionamento e comparador visual (`GET /settings/prompts/{prompt}/edit` e `PUT /settings/prompts/{prompt}`)**:
+  - Exibe badges clicáveis com os placeholders dinâmicos do serviço (`{$standard}`, `{$style}`, `{$availableStyles}`) para inserção rápida no `system_prompt`.
+  - Oferece editor amigável em linhas para as listas de metadados (`metadata.standards` na bibliografia e `metadata.styles` na elaboração de texto).
+  - Inclui botão **Restaurar padrão do código** para preencher o formulário com o template e os metadados originais da classe do Agente.
+  - Integra o componente `UIDiffViewer` para comparar em tempo real o texto em edição com a versão atualmente ativa em produção.
+  - Ao salvar, apresenta um modal permitindo escolher entre **atualizar a própria versão** (`save_mode = update`) ou **criar uma nova versão derivada** (`save_mode = new_version`), além da opção de **ativar imediatamente em produção** (`activate_now`).
 
-| Caminho | Estrutura obrigatória |
-| --- | --- |
-| `score.valor` | Inteiro de 0 a 100. |
-| `score.justificativa` | String com a justificativa da nota. |
-| `explicacoes.pt` | Objeto com três análises em português. |
-| `explicacoes.en` | Objeto com as mesmas análises e o status do inglês. |
-| `explicacoes.en.status` | String restrita a `presente`, `parcial` ou `ausente`. |
-| `texto_revisado.ementa` | Objeto com strings `pt` e `en`. |
-| `texto_revisado.objetivos` | Objeto com strings `pt` e `en`. |
-| `texto_revisado.conteudo_programatico` | Objeto com strings `pt` e `en`. |
+---
 
-As três análises têm os nomes `gramatica_acentuacao_pontuacao`, `redacao_academica_clareza_pedagogica` e `terminologia_tecnica`. O código reúne suas definições em `$analysisFields`, reutilizando-as em português e inglês. O status é acrescentado somente ao objeto inglês.
+## 5. Execução compartilhada no AiService
 
-Da mesma forma, `$bilingualFields` reúne as definições de `pt` e `en` para reutilização nas três seções revisadas. Todos os objetos e campos descritos acima são marcados com `required()`.
+### 5.1 Contrato do serviço
 
-Exemplo ilustrativo de resposta:
+A assinatura pública é `submit(Agent $agent, string $input): array`. Em tempo de execução, o serviço exige que o agente implemente `HasStructuredOutput`.
 
-```json
-{
-  "score": {"valor": 90, "justificativa": "Texto claro, com ajustes de pontuação."},
-  "explicacoes": {
-    "pt": {
-      "gramatica_acentuacao_pontuacao": "Pontuação revisada.",
-      "redacao_academica_clareza_pedagogica": "Objetivos apresentados com clareza.",
-      "terminologia_tecnica": "Terminologia consistente."
-    },
-    "en": {
-      "status": "ausente",
-      "gramatica_acentuacao_pontuacao": "Tradução criada.",
-      "redacao_academica_clareza_pedagogica": "Texto organizado em inglês acadêmico.",
-      "terminologia_tecnica": "Terminologia traduzida."
-    }
-  },
-  "texto_revisado": {
-    "ementa": {"pt": "Introdução à programação.", "en": "Introduction to programming."},
-    "objetivos": {"pt": "Desenvolver algoritmos.", "en": "Develop algorithms."},
-    "conteudo_programatico": {"pt": "Variáveis e funções.", "en": "Variables and functions."}
-  }
-}
-```
+O retorno contém os dados estruturados recebidos pelo agente. Os metadados da execução ficam disponíveis via `statistics(): ?array`.
 
-Mesmo com status `ausente`, o contrato exige campos de texto em ambos os idiomas. O prompt orienta o modelo a produzir a tradução quando necessário. O schema exige strings, mas não estabelece tamanho mínimo nem mede a qualidade da tradução.
-
-## 7. Execução compartilhada no AiService
-
-### 7.1 Contrato do serviço
-
-A interface pública é `submit(Agent $agent, string $input): array`. Em tempo de execução, o serviço exige que o agente também implemente `HasStructuredOutput`.
-
-O retorno contém somente os dados estruturados. Os metadados ficam disponíveis por `statistics(): ?array`. Isso permite que o controller mapeie o resultado para o contrato existente das telas sem depender diretamente do objeto de resposta do SDK.
-
-O construtor carrega `aiService.cacheRetention`, convertendo o valor para inteiro. Essa retenção pertence à instância do serviço; alterar a configuração depois da construção não altera o valor já carregado.
-
-### 7.2 Preparação de cada execução
-
-Antes de consultar o cache, `submit()` realiza quatro ações:
-
-1. Limpa `$statistics` para impedir que uma falha deixe dados de uma chamada anterior disponíveis.
-2. Marca o início com `microtime(true)`.
-3. Verifica `HasStructuredOutput` e resolve provider e modelo.
-4. Serializa o schema com `ObjectSchema` e calcula a chave de cache.
-
-O schema serializado participa tanto da chave quanto da validação local. A preparação ocorre mesmo quando a retenção está desabilitada ou a chamada termina em um acerto de cache.
-
-### 7.3 Geração quando o resultado não está em cache
-
-O serviço define uma closure `$generate`, responsável pela execução e preparação do registro a armazenar. Ela muda `$wasCached` para `false` e chama:
-
-```php
-// Provider e modelo foram resolvidos a partir de config/ai.php.
-$response = $agent->prompt($input, provider: $provider, model: $model, timeout: 60);
-```
-
-O timeout de 60 segundos é entregue ao SDK para a chamada ao provider. O tempo total medido pelo serviço também inclui preparação, validação e operações de cache.
-
-O SDK consulta `instructions()` e `schema()`, monta a requisição do driver `openai-compatible`, envia-a ao LiteLLM e fornece uma resposta estruturada com uso e metadados.
-
-Neste driver, a requisição inclui `response_format.type = json_schema` e o schema em `response_format.json_schema.schema`. `ObjectSchema` desabilita propriedades adicionais nos objetos, inclusive os aninhados. Os agentes atuais não possuem o atributo `Strict`; no SDK instalado, o parâmetro enviado `response_format.json_schema.strict` é `false`. Os campos obrigatórios e as restrições continuam presentes no schema, e a aplicação faz sua própria validação.
-
-O gateway e o modelo precisam aceitar esse formato de saída. Os controllers não fazem `json_decode()` da resposta: `StructuredAgentResponse::toArray()` fornece os dados decodificados pelo SDK.
-
-### 7.4 Caminho completo, com repetição em cache
+### 5.2 Fluxo de execução e cache
 
 ```mermaid
 sequenceDiagram
@@ -318,9 +211,8 @@ sequenceDiagram
         SDK->>L: POST /v1/chat/completions com json_schema
         L-->>SDK: Conteúdo, uso e metadados
         SDK-->>A: StructuredAgentResponse
-        A->>A: Na bibliografia, comparar as quatro listas
         A-->>S: Resposta estruturada
-        S->>S: Conferir término e validar dados
+        S->>S: Conferir término (FinishReason::Stop)
         S->>K: Armazenar resultado e estatísticas
     else Resultado disponível
         K-->>S: Registro validado da geração anterior
@@ -331,4 +223,129 @@ sequenceDiagram
     S-->>C: Estatísticas da chamada
 ```
 
-O diagrama mostra o caso com retenção positiva. Com retenção zero ou negativa, o serviço chama `$generate()` diretamente e não consulta nem grava o cache.
+---
+
+## 6. Validação da resposta
+
+Antes de retornar ou armazenar em cache, `AiService` verifica:
+
+1. Que a resposta é uma instância de `StructuredAgentResponse`.
+2. Que o motivo de término (`finishReason`) é `FinishReason::Stop`. Respostas truncadas ou interrompidas são rejeitadas.
+
+Os três agentes usam `#[Strict]`: o SDK envia `response_format.json_schema.strict = true` e o provider deve cumprir o schema. O serviço não repete uma validação recursiva dos campos retornados. Na bibliografia, o agente também verifica localmente se as quatro listas são válidas e têm o mesmo tamanho; essa regra entre campos não é expressa pelo JSON Schema.
+
+---
+
+## 7. Cache de respostas
+
+A chave de cache começa com `ai:submit:v2:` seguido do hash SHA-256 de:
+
+- Classe do agente (`$agent::class`);
+- Instruções resolvidas (`(string) $agent->instructions()`);
+- Schema serializado;
+- Provider, configuração do provider e modelo padrão;
+- Entrada do usuário (`$input`).
+
+Como o texto resolvido de `$agent->instructions()` faz parte do hash, **ativar uma nova versão de prompt no banco de dados invalida automaticamente o cache de respostas anteriores**, sem necessidade de limpar todo o cache manualmente.
+
+---
+
+## 8. Estatísticas
+
+`AiService::statistics()` retorna os metadados da última execução bem-sucedida:
+
+| Campo | Origem e significado |
+| --- | --- |
+| `usage.prompt_tokens` | Tokens de entrada informados pelo SDK. |
+| `usage.completion_tokens` | Tokens de saída informados pelo SDK. |
+| `usage.total_tokens` | Total de tokens consumidos na geração. |
+| `provider` | Provider utilizado na execução. |
+| `model` | Modelo efetivo retornado pelo gateway (ou modelo padrão configurado). |
+| `id` | Identificador da resposta no provider. |
+| `finish_reason` | Motivo de término validado (`stop`). |
+| `cached_at` | Data da geração original em formato ISO 8601. |
+| `duration` | Tempo da chamada atual em segundos (duas casas decimais). |
+| `cached` | `true` quando atendido pelo cache; `false` quando houve geração no modelo. |
+
+---
+
+### 8.1 Registro das chamadas de IA
+
+Com `AI_CONVERSATION_LOG_ENABLED=true`, o serviço compartilha um [AiConversationLogger](../app/Services/AiConversationLogger.php) com os listeners HTTP registrados pelo [AppServiceProvider](../app/Providers/AppServiceProvider.php). Cada execução recebe um `request_id` que relaciona `ai.request`, `ai.http.request`, `ai.http.response`, `ai.result`, `ai.cache_hit` e falhas. O contexto é encerrado em `finally`, inclusive após exceções. Chamadas diretas ao agente não participam dessa captura.
+
+O canal grava em `storage/logs/ai-conversations.log` com cabeçalho compatível com o Log Viewer, textos em várias linhas e schema indentado. Os registros incluem os textos completos de entrada e saída, sem cabeçalhos de autenticação. No acerto de cache não há novos eventos HTTP. A configuração fica em [config/logging.php](../config/logging.php); sem a variável de ambiente, a captura é desativada. O histórico administrativo de prompts continua separado em `storage/logs/aiprompt.log`.
+
+---
+
+## 9. Tratamento de falhas
+
+Os controllers utilizam a trait [`App\Traits\HandlesAiFailures`](../app/Traits/HandlesAiFailures.php) para capturar exceções do SDK e do cliente HTTP e convertê-las em mensagens públicas padronizadas:
+
+| Situação identificada | HTTP no JSON | Mensagem pública |
+| --- | --- | --- |
+| Timeout (`errno 28` ou HTTP 408/504) | 504 | O serviço de IA não respondeu a tempo. Tente novamente. |
+| `RateLimitedException` | 429 | O serviço de IA atingiu o limite de solicitações. Aguarde e tente novamente. |
+| `ProviderConnectionException` ou `ConnectionException` | 503 | Não foi possível conectar ao serviço de IA. Tente novamente mais tarde. |
+| `ProviderOverloadedException`, `InsufficientCreditsException`, `InvalidArgumentException` ou `JsonException` | 503 | O serviço de IA está indisponível no momento. Tente novamente mais tarde. |
+| `RuntimeException` (resposta fora do contrato/schema) | 502 | A IA retornou uma resposta inválida ou incompleta. Tente novamente. |
+| Demais falhas capturadas | 502 | Não foi possível processar a solicitação no serviço de IA. Tente novamente. |
+
+- **No JSON**: responde com `{"success": false, "message": "..."}` e o código HTTP correspondente.
+- **Na Web**: redireciona para a rota de origem (`$request->route()?->getName()`) preservando os campos de entrada com `withInput()` e registrando o alerta em `withErrors(['ai' => $message])`.
+- **Logs**: registra `Log::warning()` apenas com `exception_type` e `route`, sem expor chaves ou detalhes internos do gateway.
+
+---
+
+## 10. Componentes compartilhados de interface
+
+As views utilizam partials compartilhados em `resources/views/partials/`:
+
+- `height-sync.blade.php` (`UIHeightSync`): sincroniza a altura dos painéis de resultado.
+- `diff-viewer.blade.php` (`UIDiffViewer`): calcula e exibe o diff visual entre o texto original e o texto revisado, atualizando em tempo real quando o usuário edita o painel `contenteditable`.
+- `cross-highlight.blade.php` (`UICrossHighlight`): destaca o item correspondente ao passar o mouse entre o texto revisado e as explicações.
+
+---
+
+## 11. Testes e verificações
+
+| Arquivo de teste | Escopo principal |
+| --- | --- |
+| [AiSdkConfigurationTest.php](../tests/Feature/AiSdkConfigurationTest.php) | Normalização de URL do LiteLLM, autenticação HTTP, modelo e envio de `json_schema`. |
+| [AiPromptVersioningTest.php](../tests/Feature/AiPromptVersioningTest.php) | Ciclo de vida no banco (`draft`, `active`, `archived`), `AiPromptSeeder`, invalidação de cache, rollback, metadados e fallback. |
+| [AiPromptCrudTest.php](../tests/Feature/AiPromptCrudTest.php) | Gerenciamento web em `/settings/prompts` (`can:manager`), inicialização automática, atualização direta, criação de nova versão e troca de versão ativa. |
+| [BibliografiaAgentTest.php](../tests/Feature/BibliografiaAgentTest.php) | Contrato do `BibliografiaAgent`, interpolação de normas e validação de correspondência das quatro listas. |
+| [EmentaAgentTest.php](../tests/Feature/EmentaAgentTest.php) | Contrato do `EmentaAgent`, schema bilíngue e estados do inglês (`presente`, `parcial`, `ausente`). |
+| [TextoAgentTest.php](../tests/Feature/TextoAgentTest.php) | Contrato do `TextoAgent`, detecção automática de estilo, fluxo de esclarecimentos e rota `/texto`. |
+| [AiServiceTest.php](../tests/Feature/AiServiceTest.php) | Execução pelo `AiService`, timeout, retenção e isolamento de cache, estatísticas e rejeição de gerações incompletas. |
+| [AiConversationLoggingTest.php](../tests/Feature/AiConversationLoggingTest.php) | Arquivo de log, mensagens, payload HTTP, respostas brutas, cache e falhas com HTTP simulado. |
+| [Laravel13CompatibilityTest.php](../tests/Feature/Laravel13CompatibilityTest.php) | Proteção de origem/CSRF nos três serviços e seleção, download e autorização dos logs. |
+| [AiControllerTest.php](../tests/Feature/AiControllerTest.php) | Rotas `bibliografia.index` e `ementa.index`, autenticação, validação, tratamento de falhas e respostas web/JSON. |
+
+Comandos de verificação:
+
+```bash
+# Executa toda a suíte de testes
+vendor/bin/phpunit
+
+# Popula a tabela ai_prompts com a v1 dos prompts padrão
+php artisan migrate --seed
+```
+
+---
+
+## 12. Orientações para manutenção e novos agentes
+
+Para adicionar um novo serviço de IA ao projeto:
+
+1. **Agente (`app/Ai/Agents/NovoAgent.php`)**:
+   - Implemente `Agent` e `HasStructuredOutput`.
+   - Defina `public const SLUG = 'novo_servico';` e `public static function defaultTemplate(): string`.
+   - Em `instructions()`, retorne `AiPrompt::resolve(self::SLUG, self::defaultTemplate(), $params, $this->version)`.
+   - Em `schema(JsonSchema $schema)`, declare a estrutura de saída esperada.
+2. **Seeder (`database/seeders/AiPromptSeeder.php`)**:
+   - Adicione a definição inicial (`v1`) do novo serviço para que ambientes novos recebam o prompt no banco.
+3. **Controller (`app/Http/Controllers/NovoController.php`)**:
+   - Utilize a trait `App\Traits\HandlesAiFailures`.
+   - Execute o agente via `$this->aiService->submit(new NovoAgent, $input)`.
+4. **Rota e View**:
+   - Registre a rota em `routes/web.php` e crie a view em `resources/views/novo_servico/index.blade.php`.

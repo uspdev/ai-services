@@ -1,35 +1,31 @@
 # USP AI Services (Portal & API)
 
+<a href="https://github.com/uspdev"><img src="docs/uspdev-horizontal.png" height="20" alt="USPdev" align="middle"></a>
 [![Laravel 13](https://img.shields.io/badge/Laravel-13-FF2D20?style=flat-square&logo=laravel&logoColor=white)](https://laravel.com/)
 [![PHP](https://img.shields.io/badge/PHP-777BB4?style=flat-square&logo=php&logoColor=white)](https://php.net/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](https://opensource.org/license/mit)
 
+Plataforma centralizada de serviços baseados em Inteligência Artificial. O sistema oferece tanto uma **interface web (playground)** para uso direto quanto uma **API RESTful** para integração com sistemas.
+
 ---
 
-## 🛠️ Módulos de Serviços
+## 🛠️ Serviços de IA
 
 ### 1. Formatação e Normalização Bibliográfica
-Ajuste e padronização automática de referências bibliográficas de acordo com normas acadêmicas (ABNT NBR 6023, APA, etc.), com tratamento inteligente de ruídos, autores, intervalos de páginas e extração de dados para consulta ao catálogo Dedalus.
+Ajuste e padronização automática de referências bibliográficas de acordo com normas acadêmicas (ABNT NBR 6023, APA, etc.), com tratamento inteligente de ruídos, autores, intervalos de páginas e consulta integrada ao acervo Dedalus/ABCD da USP via AJAX.
 
 ### 2. Revisão de Ementas
 Revisão de ementa, objetivos e conteúdo programático em português e inglês, com avaliação de qualidade, explicações e tradução dos trechos cujo inglês estiver ausente.
 
+### 3. Elaboração de Textos a partir de Rascunhos
+Transformação de rascunhos, tópicos ou anotações em textos institucionais ou acadêmicos claros, coesos e bem estruturados (comunicados, ofícios, despachos, pareceres, e-mails ou modo automático com inferência inteligente de estilo e sugestão de assunto).
+
 ---
 
-## 🚀 Arquitetura e Rotas
+## ✨ Recursos do Sistema
 
-Os dois serviços usam as mesmas rotas para formulário web e resposta JSON:
-
-| Rota | Entrada no POST | Funcionamento |
-| --- | --- | --- |
-| `/bibliografia` | `message` e `standard` | Formata referências na norma selecionada. |
-| `/ementa` | `mensagem` | Revisa o texto acadêmico e suas versões em português e inglês. |
-
-GET exibe o formulário; com `Accept: application/json`, informa os campos esperados no POST. POST devolve a tela de resultados ou JSON, conforme o mesmo cabeçalho. O texto de entrada tem limite de 10.000 caracteres.
-
-```text
-Controller → AiService (cache e estatísticas) → Agente → Laravel AI SDK → LiteLLM
-```
+### Gerenciamento e Versionamento de Prompts de IA
+Painel web administrativo (`/settings/prompts`) restrito a gerentes (`can:manager`) para controle das instruções de sistema (`system_prompt`), metadados e ciclo de vida de versões (`draft`, `active`, `archived`) com comparador visual Diff em tempo real, restauração de padrões de código e histórico de auditoria em `storage/logs/aiprompt.log`.
 
 ---
 
@@ -46,20 +42,20 @@ Controller → AiService (cache e estatísticas) → Agente → Laravel AI SDK �
 ### Passo a Passo
 
 ```bash
-    git clone git@github.com:uspdev/ai-services ai-services
-    cd ai-services
-    composer install
-    cp .env.example .env
-    php artisan key:generate
+git clone git@github.com:uspdev/ai-services ai-services
+cd ai-services
+composer install
+cp .env.example .env
+php artisan key:generate
 ```
 
 ### Senha única
 
 Cadastre a URL de callback no configurador de Senha Única com o caminho `/callback`. Guarde o `callback_id` para preencher `SENHAUNICA_CALLBACK_ID` no `.env` da aplicação.
 
-### Configuração de IA
+### Configuração de IA e Serviços
 
-Preencha as variáveis no `.env` com os valores do seu gateway:
+Preencha as variáveis no `.env` com os valores do seu gateway e integrações:
 
 ```dotenv
 AI_PROVIDER=litellm
@@ -67,6 +63,12 @@ LITELLM_URL=http://localhost:4000
 LITELLM_API_KEY=
 LITELLM_MODEL=gemini-flash
 AI_CACHE_RETENTION=604800
+AI_CONVERSATION_LOG_ENABLED=${APP_DEBUG}
+AI_PROMPT_LOG_RETENTION_MONTHS=12
+
+DEDALUS_URL=https://app.abcd.usp.br/WSearch.php
+DEDALUS_LIBRARY=EESC
+DEDALUS_TIMEOUT=30
 ```
 
 | Variável | Uso |
@@ -75,44 +77,27 @@ AI_CACHE_RETENTION=604800
 | `LITELLM_URL` | URL base do gateway, sem `/chat/completions`. |
 | `LITELLM_API_KEY` | Chave de acesso ao gateway. |
 | `LITELLM_MODEL` | Alias de modelo exposto pelo LiteLLM; `gemini-flash` é o exemplo do `.env.example`. |
-| `AI_CACHE_RETENTION` | Retenção das respostas validadas em segundos; padrão de sete dias. Zero ou valor negativo desabilita o cache. |
+| `AI_CACHE_RETENTION` | Retenção das respostas validadas em segundos; padrão de sete dias (`604800`). Zero desabilita o cache. |
+| `AI_CONVERSATION_LOG_ENABLED` | Ativa o registro completo das chamadas em `storage/logs/ai-conversations.log`; no exemplo acompanha `APP_DEBUG`. |
+| `AI_PROMPT_LOG_RETENTION_MONTHS` | Período (em meses) dos logs de auditoria de prompts exibidos na interface administrativa (padrão: `12`). |
+| `DEDALUS_URL` | Endpoint da busca do catálogo Dedalus/ABCD da USP. |
+| `DEDALUS_LIBRARY` | Sigla da biblioteca padrão para consulta no Dedalus (ex.: `EESC`). |
+| `DEDALUS_TIMEOUT` | Timeout em segundos para requisições ao Dedalus (padrão: `30`). |
 
 `config/ai.php` reúne provider, driver, URL, chave e modelo. A configuração do projeto acrescenta `/v1` para manter o endpoint `/v1/chat/completions` já utilizado; bases com `/v1` também são aceitas sem duplicação. Esse prefixo é uma escolha desta integração, não uma exigência do driver do SDK.
 
-`config/aiService.php` mantém somente a retenção do cache. O armazenamento é escolhido por `config/cache.php`, que neste projeto lê `CACHE_DRIVER`. O cache só guarda respostas validadas, separadas por agente, prompt, schema, provider, configuração, modelo e entrada.
+`config/aiService.php` mantém a retenção do cache (`AI_CACHE_RETENTION`) e o período dos logs (`AI_PROMPT_LOG_RETENTION_MONTHS`). O armazenamento do cache é escolhido por `config/cache.php`, que neste projeto lê `CACHE_DRIVER`. O cache só guarda respostas validadas, separadas por agente, prompt, schema, provider, configuração, modelo e entrada.
 
 ### Agentes e saída estruturada
 
-`BibliografiaAgent` recebe a norma no construtor e retorna `referencias`, `explicacoes`, `busca_dedalus` e `confiancas`. A aplicação aceita as normas listadas em `AiPrompt::getBibliografiaStandards()`.
-
-`EmentaAgent` retorna `score`, `explicacoes` e `texto_revisado`, com os campos em português e inglês. O status do inglês pode ser `presente`, `parcial` ou `ausente`.
-
-Os dois agentes obtêm as regras de conteúdo em `app/Models/AiPrompt.php`. A estrutura de retorno é definida somente nos métodos `schema()` dos agentes e enviada pelo SDK como `response_format: json_schema`; os prompts não repetem exemplos de JSON nem exigências de serialização. As regras bibliográficas, o significado dos campos, a correspondência das listas, a avaliação acadêmica e a tradução continuam nas instruções. As chamadas são síncronas, com timeout de 60 segundos, sem memória de conversa, tools, streaming ou filas.
-
-Em código, utilize o serviço para obter dados validados e reaproveitar o cache:
-
-```php
-use App\Ai\Agents\BibliografiaAgent;
-use App\Ai\Agents\EmentaAgent;
-use App\Services\AiService;
-
-$service = app(AiService::class);
-$bibliografia = $service->submit(
-    new BibliografiaAgent('ABNT NBR 6023:2025'),
-    $referencias,
-);
-$estatisticas = $service->statistics();
-
-$ementa = $service->submit(new EmentaAgent, $mensagem);
-```
-
-As estatísticas da última chamada incluem tokens de entrada, saída e total, provider, modelo, identificador, motivo de término, duração, `cached` e `cached_at`. Nos acertos de cache, os tokens são os da geração original e `cached_at` mantém a data dessa geração.
+Os três agentes usam `#[Strict]` para exigir o JSON Schema no provider. Bibliografia e ementa mantêm seus prompts simplificados, sem exemplos de serialização JSON; os templates padrão ficam nos próprios agentes e o banco permite editar e ativar versões. As regras bibliográficas, a correspondência das listas, a avaliação acadêmica e a tradução permanecem nas instruções. Versões já salvas no banco são preservadas.
 
 ### Sistema de logs
 
+
 Os logs gerais ficam em `storage/logs/laravel.log`; a captura das chamadas de IA usa `storage/logs/ai-conversations.log`, e a integração com o Replicado usa `storage/logs/replicado.log`. O visualizador está disponível em `/laravel-tools/logs` para usuários autorizados pelo Gate `admin`.
 
-Consulte o [guia do sistema de logs](docs/sistema-de-logs.md) para configurar canais e níveis, acompanhar os arquivos, entender os eventos de IA, usar o visualizador e administrar a retenção.
+Consulte a [documentação da arquitetura](docs/implementacao-laravel-ai-sdk.md#81-registro-das-chamadas-de-ia) para entender a captura das chamadas. O histórico de alterações dos prompts fica em `storage/logs/aiprompt.log`.
 
 ### Log de pedidos e retornos da IA
 
@@ -124,7 +109,7 @@ AI_CONVERSATION_LOG_ENABLED=true
 AI_CACHE_RETENTION=0
 ```
 
-Depois de alterar a configuração, execute `php artisan config:clear`. Faça uma solicitação de bibliografia ou ementa e acompanhe o arquivo:
+Depois de alterar a configuração, execute `php artisan config:clear`. Faça uma solicitação de bibliografia, ementa ou elaboração de textos e acompanhe o arquivo:
 
 ```bash
 tail -f storage/logs/ai-conversations.log
@@ -136,8 +121,8 @@ O canal dedicado mantém o cabeçalho do Laravel, com data, nível e evento. A i
 | --- | --- |
 | `ai.request` | Agente, provider, modelo, instruções de sistema, entrada do usuário e schema solicitado pela aplicação. |
 | `ai.http.request` | Método, URL e payload HTTP real montado pelo SDK, incluindo `messages` e `response_format`. |
-| `ai.http.response` | Status e corpo bruto recebidos, antes de interpretar JSON ou validar os campos. |
-| `ai.result` | Resultado validado e estatísticas da geração. |
+| `ai.http.response` | Status e corpo bruto recebidos, antes de interpretar o JSON e conferir o término da geração. |
+| `ai.result` | Resultado recebido pelo serviço e estatísticas da geração. |
 | `ai.cache_hit` | Resultado e estatísticas reaproveitados, sem nova comunicação com a IA. |
 | `ai.http.connection_failed` | Falha de conexão com o provider. |
 | `ai.error` | Classe e mensagem interna da falha de execução ou validação. |
@@ -146,19 +131,26 @@ Respostas inválidas ou incompletas também ficam registradas. JSON contido em `
 
 Os testes automatizados simulam HTTP e verificam a integração e o arquivo de log. A qualidade das respostas reais após simplificar os prompts deve ser avaliada com o gateway e o modelo configurados.
 
-### Respostas JSON e falhas
+### Banco de Dados e Migrations
 
-O sucesso mantém o envelope `{"success": true, "data": {...}}`. Na bibliografia, os dados incluem `respostas`, `explicacoes`, `confiancas`, a entrada, a norma e as estatísticas. Na ementa, incluem `resposta`, `score`, `explicacoes`, `analiseIngles`, a entrada e as estatísticas. `analiseIngles` corresponde a `explicacoes.en` do resultado do agente.
+Execute as migrations para criar as tabelas da aplicação (incluindo `ai_prompts`):
 
-Falhas de execução retornam `{"success": false, "message": "..."}`:
+```bash
+php artisan migrate
+```
 
-| Status | Situação |
-| --- | --- |
-| 429 | Limite de solicitações do provider. |
-| 502 | Resposta inválida ou incompleta, ou falha no processamento pelo provider. |
-| 503 | Falha de conexão, indisponibilidade ou configuração ausente. |
-| 504 | Timeout. |
+Opcionalmente, popule de forma idempotente a versão inicial (`v1`) dos prompts padrão no banco (caso contrário, eles são inicializados automaticamente no primeiro acesso a `/settings/prompts` ou executados via fallback em código):
 
-Entrada inválida retorna 422, com os erros de validação do Laravel; requisições JSON sem autenticação retornam 401. Nas requisições web, falhas de IA retornam ao formulário com um alerta e preservam a entrada.
+```bash
+php artisan db:seed --class=AiPromptSeeder
+```
 
-Consulte a [documentação técnica da integração com o Laravel AI SDK no Laravel 13](docs/implementacao-laravel-ai-sdk.md) para entender as dependências, o código atual, os schemas, o cache, as estatísticas, os fluxos de execução e os testes.
+---
+
+## 📚 Documentação Técnica
+
+- **[Guia da API e Agentes](docs/api.md)**: especificação dos endpoints JSON, autenticação, saídas estruturadas dos agentes, envelopes de resposta e tratamento de erros.
+- **[Arquitetura Geral e Integração com o Laravel AI SDK](docs/implementacao-laravel-ai-sdk.md)**: configuração do LiteLLM, versionamento e CRUD de prompts (`AiPrompt`), `AiService`, cache, estatísticas, tratamento de falhas (`HandlesAiFailures`) e testes.
+- **[Serviço de Bibliografia](docs/bibliografia.md)**: detalhes do `BibliografiaController`, `BibliografiaAgent`, normas suportadas, consulta assíncrona ao Dedalus (`DedalusService`) e interface.
+- **[Serviço de Ementa](docs/ementa.md)**: detalhes do `EmentaController`, `EmentaAgent`, schema bilíngue e interface.
+- **[Serviço de Elaboração de Texto](docs/texto.md)**: detalhes do `TextoController`, `TextoAgent`, detecção automática de estilos, sugestão de assunto e interface.

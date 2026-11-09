@@ -78,14 +78,15 @@ class Laravel13CompatibilityTest extends TestCase
     }
 
     /**
-     * Fornece origens e tokens aceitos e rejeitados nos dois endpoints.
+     * Fornece origens e tokens aceitos e rejeitados nos três serviços autenticados.
      *
      * @return array<string, array{string, string|null, string|null, int}> Rota, origem, token e status.
      */
     public static function forgeryRequests(): array
     {
         $cases = [];
-        foreach (['bibliografia.bibliografia', 'bibliografia.ementa'] as $route) {
+        // Usa os nomes atuais das rotas e inclui o serviço de textos recebido da main.
+        foreach (['bibliografia.index', 'ementa.index', 'texto.index'] as $route) {
             $cases[$route.' missing token'] = [$route, null, null, 419];
             $cases[$route.' invalid token'] = [$route, null, 'invalid-token', 419];
             $cases[$route.' valid token'] = [$route, null, 'valid-test-token', 422];

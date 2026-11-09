@@ -52,6 +52,7 @@
               @foreach ($explicacoes as $index => $texto)
                 @php
                   $confianca = $confiancas[$index] ?? null;
+                  $dedalusItem = $dedalus[$index] ?? null;
 
                   $classeConfianca = match (true) {
                       $confianca >= 89 => 'badge-success',
@@ -62,11 +63,27 @@
                 <div class="explicacao-item" data-index="{{ $index }}">
                   {{ $texto }}
                   <span class="badge {{ $classeConfianca }}">{{ $confianca }}%</span>
+                  @if ($dedalusItem)
+                    @php
+                      $dedalusLibrary = $dedalusItem['library'] ?? '';
+                    @endphp
+                    <button type="button"
+                      class="badge badge-secondary border-0 ml-1 dedalus-trigger"
+                      data-index="{{ $index }}"
+                      data-toggle="modal"
+                      data-target="#modal-dedalus-{{ $index }}"
+                      title="Consultar resultados no acervo Dedalus">
+                      <i class="fas fa-spinner fa-spin mr-1"></i>Dedalus{{ $dedalusLibrary ? " ({$dedalusLibrary})" : '' }}:
+                      <span class="dedalus-count" data-index="{{ $index }}">...</span>
+                    </button>
+                  @endif
                 </div>
               @endforeach
             </div>
           </div>
         </div>
+
+        @include('bibliografia.partials.dedalus')
       @else
         <div id="error-bibliografia" class="alert alert-info">
           @foreach ($explicacoes ?? [] as $index => $texto)

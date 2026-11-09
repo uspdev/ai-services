@@ -1,6 +1,10 @@
 <?php
 
-use App\Http\Controllers\AiController;
+use App\Http\Controllers\AiPromptController;
+use App\Http\Controllers\BibliografiaController;
+use App\Http\Controllers\EmentaController;
+use App\Http\Controllers\GlossarioController;
+use App\Http\Controllers\TextoController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -19,9 +23,18 @@ Route::get('/', function () {
 });
 
 Route::middleware(['auth'])->group(function () {
-    // Os dois fluxos usam o mesmo controller e preservam os nomes públicos das rotas.
-    Route::match(['get', 'post'], 'bibliografia', [AiController::class, 'bibliografia'])->name('bibliografia.bibliografia');
-    Route::match(['get', 'post'], 'ementa', [AiController::class, 'ementa'])->name('bibliografia.ementa');
+    Route::match(['get', 'post'], 'bibliografia', [BibliografiaController::class, 'index'])->name('bibliografia.index');
+    Route::get('bibliografia/dedalus', [BibliografiaController::class, 'dedalus'])->name('bibliografia.dedalus');
+    Route::match(['get', 'post'], 'ementa', [EmentaController::class, 'index'])->name('ementa.index');
+    Route::match(['get', 'post'], 'texto', [TextoController::class, 'index'])->name('texto.index');
+    Route::get('glossario', [GlossarioController::class, 'index'])->name('glossario.index');
+
+    Route::middleware(['can:manager'])->prefix('settings')->group(function () {
+        Route::get('prompts', [AiPromptController::class, 'index'])->name('prompts.index');
+        Route::get('prompts/{prompt}/edit', [AiPromptController::class, 'edit'])->name('prompts.edit');
+        Route::put('prompts/{prompt}', [AiPromptController::class, 'update'])->name('prompts.update');
+        Route::patch('prompts/{prompt}/activate', [AiPromptController::class, 'activate'])->name('prompts.activate');
+    });
 });
 
 // Permite usar Gate::check('user')na view 404

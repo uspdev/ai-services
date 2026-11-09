@@ -92,6 +92,8 @@ class BibliografiaAgentTest extends TestCase
         ], $request['messages']);
         $this->assertArrayNotHasKey('tools', $request->data());
         $this->assertSame('json_schema', $request['response_format']['type']);
+        // O versionamento do prompt não pode desativar a exigência de schema no provider.
+        $this->assertTrue($request['response_format']['json_schema']['strict']);
 
         $schema = $request['response_format']['json_schema']['schema'];
         $this->assertSame(['referencias', 'explicacoes', 'busca_dedalus', 'confiancas'], $schema['required']);
@@ -125,7 +127,7 @@ class BibliografiaAgentTest extends TestCase
     public static function bibliographyStandards(): array
     {
         $cases = [];
-        foreach (AiPrompt::getBibliografiaStandards() as $standard) {
+        foreach (BibliografiaAgent::standards() as $standard) {
             $cases[$standard] = [$standard];
         }
 
