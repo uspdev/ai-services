@@ -73,6 +73,51 @@ class DedalusServiceTest extends TestCase
     }
 
     /**
+     * Confere que o parâmetro de autor extrai sobrenomes formatados para autor único ou múltiplos autores.
+     *
+     * @return void
+     */
+    public function test_build_author_query_extracts_single_and_multiple_authors(): void
+    {
+        $service = new DedalusService;
+
+        $this->assertSame(
+            'POPOV',
+            $service->buildAuthorQuery([
+                'autor' => 'POPOV, Egor P.',
+                'titulo' => 'Introdução à mecânica dos sólidos',
+            ])
+        );
+
+        $this->assertSame(
+            'BEER,JOHNSTON',
+            $service->buildAuthorQuery([
+                'autor' => 'BEER, Ferdinand P.; JOHNSTON, E. Russell',
+                'titulo' => 'Mecânica dos materiais',
+            ])
+        );
+
+        $this->assertSame(
+            'BEER,JOHNSTON',
+            $service->buildAuthorQuery([
+                'autor' => 'BEER, F. P., & JOHNSTON, E. R.',
+                'titulo' => 'Mecânica vetorial para engenheiros',
+            ])
+        );
+
+        $this->assertSame(
+            'Paul Allen Tipler',
+            $service->buildAuthorQuery([
+                'autor' => 'Paul Allen Tipler 1933-',
+                'titulo' => 'Física',
+            ])
+        );
+
+        $this->assertSame('', $service->buildAuthorQuery(['autor' => '[s.n.]', 'titulo' => 'Manual']));
+        $this->assertSame('', $service->buildAuthorQuery(['autor' => 'N/A', 'titulo' => '-']));
+    }
+
+    /**
      * Confere a normalização das publicações, os parâmetros fixos e o reaproveitamento do cache.
      *
      * @return void
@@ -116,6 +161,7 @@ class DedalusServiceTest extends TestCase
         $this->assertCount(1, $first['publications']);
         $this->assertSame('000296236', $first['publications'][0]['sysNo']);
         $this->assertSame(['Paul Allen Tipler 1933-', 'Horácio Macedo'], $first['publications'][0]['authors']);
+        $this->assertSame('', $first['publications'][0]['isbn']);
 
         Http::assertSentCount(1);
         Http::assertSent(function (Request $request): bool {
@@ -182,5 +228,124 @@ class DedalusServiceTest extends TestCase
             ->assertJsonPath('data.library', 'IFSC')
             ->assertJsonPath('data.total', 2)
             ->assertJsonPath('data.publications.0.sysNo', '000611341');
+
+        $this->getJson(route('bibliografia.dedalus', ['search' => 'Resistência dos materiais', 'author' => 'BEER,JOHNSTON', 'library' => 'EESC']))
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.author', 'BEER,JOHNSTON')
+            ->assertJsonPath('data.library', 'EESC');
+    }
+
+    /**
+     * Confere que a busca refinada envia o parâmetro author ao Dedalus e preserva o autor no retorno.
+     *
+     * @return void
+     */
+    public function test_search_sends_author_parameter_and_records_it(): void
+    {
+        Http::fake([
+            'https://app.abcd.usp.br/WSearch.php*' => Http::response([
+                'numberOfResultsTotal' => 3,
+                'publications' => [
+                    [
+                        'sysNo' => '000123456',
+                        'title' => 'Resistência dos materiais',
+                        'authors' => ['Ferdinand P. Beer', 'E. Russell Johnston'],
+                    ],
+                ],
+            ]),
+        ]);
+
+        $service = new DedalusService;
+        $result = $service->search('Resistência dos materiais', 'EESC', 'BEER,JOHNSTON');
+
+        $this->assertNull($result['error']);
+        $this->assertSame('Resistência dos materiais', $result['query']);
+        $this->assertSame('BEER,JOHNSTON', $result['author']);
+        $this->assertSame('EESC', $result['library']);
+        $this->assertSame(3, $result['total']);
+
+        Http::assertSent(function (Request $request): bool {
+            return str_starts_with($request->url(), 'https://app.abcd.usp.br/WSearch.php')
+                && $request['search'] === 'Resistência dos materiais'
+                && $request['author'] === 'BEER,JOHNSTON'
+                && $request['library'] === 'EESC'
+                && $request['resourceType'] === 'books'
+                && $request['options'] === 'byTitle';
+        });
+    }
+
+    /**
+     * Confere que o lote de busca inclui o autor extraído e o repassa na consulta.
+     *
+     * @return void
+     */
+    public function test_search_batch_includes_author_and_passes_to_search(): void
+    {
+        Http::fake([
+            'https://app.abcd.usp.br/WSearch.php*' => Http::response([
+                'numberOfResultsTotal' => 1,
+                'publications' => [
+                    ['sysNo' => '000999888', 'title' => 'Mecânica dos sólidos', 'authors' => ['Egor P. Popov']],
+                ],
+            ]),
+        ]);
+
+        $service = new DedalusService;
+        $batch = $service->searchBatch([
+            [
+                'autor' => 'POPOV, Egor P.',
+                'titulo' => 'Mecânica dos sólidos',
+            ],
+        ]);
+
+        $this->assertCount(1, $batch);
+        $this->assertSame('POPOV, Egor P.', $batch[0]['autor']);
+        $this->assertSame('Mecânica dos sólidos', $batch[0]['titulo']);
+        $this->assertSame('POPOV', $batch[0]['author']);
+        $this->assertSame('Mecânica dos sólidos', $batch[0]['query']);
+        $this->assertSame(1, $batch[0]['total']);
+
+        Http::assertSent(function (Request $request): bool {
+            return $request['search'] === 'Mecânica dos sólidos'
+                && $request['author'] === 'POPOV';
+        });
+    }
+
+    /**
+     * Confere que o ISBN é extraído tanto do barCode das localizações quanto do campo direto da publicação.
+     *
+     * @return void
+     */
+    public function test_normalize_publication_extracts_isbn_from_locations_barcode_and_direct_field(): void
+    {
+        Http::fake([
+            'https://app.abcd.usp.br/WSearch.php*' => Http::response([
+                'numberOfResultsTotal' => 2,
+                'publications' => [
+                    [
+                        'sysNo' => '001',
+                        'title' => 'Algoritmos',
+                        'locations' => [
+                            ['barCode' => '9788535236996', 'libraryCode' => 'ICMC'],
+                            ['barCode' => '9788535236996', 'libraryCode' => 'IME'],
+                        ],
+                    ],
+                    [
+                        'sysNo' => '002',
+                        'title' => 'Física Quântica',
+                        'isbn' => '85-346-0195-X',
+                        'locations' => [],
+                    ],
+                ],
+            ]),
+        ]);
+
+        $service = new DedalusService;
+        $result = $service->search('Algoritmos');
+
+        $this->assertCount(2, $result['publications']);
+        $this->assertSame('9788535236996', $result['publications'][0]['isbn']);
+        $this->assertSame('85-346-0195-X', $result['publications'][1]['isbn']);
     }
 }

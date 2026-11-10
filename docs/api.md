@@ -109,13 +109,14 @@ Consulta assíncrona ao catálogo Dedalus/ABCD da USP para localização de exem
 
 - **Método**: `GET`
 - **Query Parameters**:
-  - `search` (*string*, obrigatório): termo de busca gerado pelo `BibliografiaAgent` ou digitado pelo usuário.
-  - `library` (*string*, opcional): sigla da biblioteca USP (ex.: `EESC`, `FFLCH`, `IME`). Se omitido, utiliza `config('services.dedalus.library')`.
+  - `search` (*string*, obrigatório): termo de busca principal (título da obra) gerado pelo `BibliografiaAgent` ou digitado pelo usuário.
+  - `author` (*string*, opcional): filtro complementar por autor(es), aceitando autor único ou múltiplos autores separados por vírgula (ex.: `BEER` ou `BEER,JOHNSTON`).
+  - `library` (*string*, opcional): sigla da biblioteca USP (ex.: `EESC`, `FFLCH`, `IME`). Se omitido, utiliza `config('dedalus.library')`.
 
 #### Exemplo de Requisição
 
 ```http
-GET /bibliografia/dedalus?search=Inteligência+artificial+na+educação+SILVA&library=EESC HTTP/1.1
+GET /bibliografia/dedalus?search=Inteligência+artificial+na+educação&author=SILVA&library=EESC HTTP/1.1
 Host: localhost:8000
 Accept: application/json
 ```

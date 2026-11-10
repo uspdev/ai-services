@@ -116,10 +116,11 @@ O serviço [app/Services/DedalusService.php](../app/Services/DedalusService.php)
   - `DEDALUS_URL`: URL base da busca (padrão: `https://app.abcd.usp.br/WSearch.php`).
   - `DEDALUS_LIBRARY`: sigla da biblioteca padrão (padrão: `EESC`).
   - `DEDALUS_TIMEOUT`: tempo limite em segundos para aguardar resposta da API (padrão: `30`).
-- **Construção do termo (`buildSearchQuery()`)**:
-  - Prioriza o título principal de `titulo` (antes de `:` ou `;`, compatível com `options=byTitle`), recorrendo ao sobrenome/segmento principal de `autor` apenas quando o título estiver ausente, e ignorando marcadores vazios (`N/A`, `[s.n.]`).
-- **Parâmetros enviados ao `WSearch.php`**:
-  - `search`, `library`, `resourceType=books` e `options=byTitle`.
+- **Construção dos termos (`buildSearchQuery()` e `buildAuthorQuery()`)**:
+  - `buildSearchQuery()`: prioriza o título principal da obra (antes de `:` ou `;`, compatível com `options=byTitle`), recorrendo ao autor apenas quando o título estiver ausente, e ignorando marcadores vazios (`N/A`, `[s.n.]`).
+  - `buildAuthorQuery()`: extrai o(s) autor(es) formatados para o parâmetro `author`, suportando autor único (`POPOV`) ou múltiplos autores separados por vírgula (`BEER,JOHNSTON`), removendo datas e expressões como `et al.`.
+- **Parâmetros enviados à API**:
+  - `search` (título da obra), `author` (filtro complementar por autores quando disponível), `library`, `resourceType=books` e `options=byTitle`.
 - **Execução e resiliência (`search()` e `searchBatch()`)**:
   - Armazena respostas válidas em cache respeitando `config('aiService.cacheRetention')`.
   - Caso o endpoint do Dedalus esteja indisponível ou retorne erro HTTP, registra um aviso em log e devolve `publications: []` com a mensagem em `error`, sem interromper a exibição das referências corrigidas pela IA.

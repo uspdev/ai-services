@@ -70,6 +70,87 @@ class DedalusService
     }
 
     /**
+     * Monta o valor do parâmetro complementar `author` para busca no Dedalus a partir do item extraído pelo agente.
+     *
+     * @param array<string, mixed> $item Par com chaves `autor` e `titulo` extraído pelo agente.
+     * @return string Nomes/sobrenomes formatados para o parâmetro `author` do Dedalus.
+     */
+    public function buildAuthorQuery(array $item): string
+    {
+        return $this->extractAuthorQuery((string) ($item['autor'] ?? ''));
+    }
+
+    /**
+     * Extrai os autores principais ou sobrenomes formatados para o parâmetro `author` do Dedalus.
+     *
+     * Suporta autor único ou múltiplos autores separados por vírgula (ex.: "BEER" ou "BEER,JOHNSTON"),
+     * descartando iniciais, datas e termos genéricos de ausência de informação.
+     *
+     * @param string $rawAuthor Autor bruto informado em `busca_dedalus`.
+     * @return string Nomes/sobrenomes higienizados para o parâmetro `author`.
+     */
+    public function extractAuthorQuery(string $rawAuthor): string
+    {
+        $cleaned = trim($rawAuthor);
+        if ($this->isPlaceholder($cleaned)) {
+            return '';
+        }
+
+        // Remove expressões como "et al." e datas de nascimento/morte (ex.: "1933-" ou "1933-2010").
+        $cleaned = (string) preg_replace('/\bet\s+al\.?/iu', '', $cleaned);
+        $cleaned = (string) preg_replace('/(?<!\d)\d{4}-\d{0,4}(?!\d)/u', '', $cleaned);
+
+        // Separa múltiplos autores por ponto e vírgula, &, "and" ou "e".
+        $authors = preg_split('/;\s*|\s+&\s+|\s+and\s+|\s+e\s+/iu', $cleaned);
+        if (! is_array($authors)) {
+            return '';
+        }
+
+        $extracted = [];
+        foreach ($authors as $author) {
+            $author = trim($author, " \t\n\r\0\x0B.,;:");
+            if ($author === '' || $this->isPlaceholder($author)) {
+                continue;
+            }
+
+            // Quando estiver no formato "SOBRENOME, Nome", utiliza a parte anterior à primeira vírgula.
+            if (str_contains($author, ',')) {
+                $parts = explode(',', $author);
+                $surname = trim((string) ($parts[0] ?? ''), " \t\n\r\0\x0B.,;:");
+                if ($surname !== '' && ! $this->isPlaceholder($surname) && ! in_array($surname, $extracted, true)) {
+                    $extracted[] = $surname;
+                }
+            } else {
+                $name = trim($author, " \t\n\r\0\x0B.,;:");
+                if ($name !== '' && ! $this->isPlaceholder($name) && ! in_array($name, $extracted, true)) {
+                    $extracted[] = $name;
+                }
+            }
+        }
+
+        return implode(',', $extracted);
+    }
+
+    /**
+     * Higieniza o parâmetro `author` recebido diretamente na requisição de busca.
+     *
+     * @param string $author Texto do parâmetro `author`.
+     * @return string Valor normalizado sem espaços redundantes ao redor de vírgulas.
+     */
+    public function cleanAuthorParam(string $author): string
+    {
+        $cleaned = trim((string) preg_replace('/\s+/u', ' ', $author));
+        if ($this->isPlaceholder($cleaned)) {
+            return '';
+        }
+
+        // Remove espaços ao redor de vírgulas (ex.: "BEER, JOHNSTON" -> "BEER,JOHNSTON").
+        $cleaned = (string) preg_replace('/\s*,\s*/u', ',', $cleaned);
+
+        return trim($cleaned, " \t\n\r\0\x0B,;:");
+    }
+
+    /**
      * Prepara os metadados e termos de busca para cada referência sem realizar chamadas HTTP.
      *
      * Usado na resposta principal do `POST /bibliografia` para que a consulta ao Dedalus
@@ -81,6 +162,7 @@ class DedalusService
      *     autor: string,
      *     titulo: string,
      *     query: string,
+     *     author: string,
      *     library: string
      * }> Metadados de busca indexados na mesma ordem das referências.
      */
@@ -95,6 +177,7 @@ class DedalusService
                 'autor' => trim((string) ($normalizedItem['autor'] ?? '')),
                 'titulo' => trim((string) ($normalizedItem['titulo'] ?? '')),
                 'query' => $this->buildSearchQuery($normalizedItem),
+                'author' => $this->buildAuthorQuery($normalizedItem),
                 'library' => $resolvedLibrary,
             ];
         }
@@ -111,6 +194,7 @@ class DedalusService
      *     autor: string,
      *     titulo: string,
      *     query: string,
+     *     author: string,
      *     library: string,
      *     url: string,
      *     total: int,
@@ -123,7 +207,7 @@ class DedalusService
         $results = [];
 
         foreach ($this->prepareBatch($buscaDedalus, $library) as $prepared) {
-            $searchResult = $this->search($prepared['query'], $prepared['library']);
+            $searchResult = $this->search($prepared['query'], $prepared['library'], $prepared['author']);
 
             $results[] = [
                 'autor' => $prepared['autor'],
@@ -144,8 +228,10 @@ class DedalusService
      *
      * @param string $query Termo de busca a consultar no parâmetro `search`.
      * @param string|null $library Sigla da biblioteca no Dedalus (padrão configurado em `dedalus.library`).
+     * @param string|null $author Filtro complementar por autor(es) no parâmetro `author`.
      * @return array{
      *     query: string,
+     *     author: string,
      *     library: string,
      *     url: string,
      *     total: int,
@@ -153,14 +239,15 @@ class DedalusService
      *     error: string|null
      * } Resultado normalizado da busca no Dedalus.
      */
-    public function search(string $query, ?string $library = null): array
+    public function search(string $query, ?string $library = null, ?string $author = null): array
     {
         $cleanQuery = trim((string) preg_replace('/\s+/u', ' ', $query));
+        $cleanAuthor = $author !== null ? $this->cleanAuthorParam($author) : '';
         $endpoint = trim((string) config('dedalus.url'));
         $resolvedLibrary = trim((string) ($library ?? config('dedalus.library')));
 
         if ($cleanQuery === '' || $endpoint === '') {
-            return $this->emptyResult($cleanQuery, $resolvedLibrary, '');
+            return $this->emptyResult($cleanQuery, $resolvedLibrary, '', null, $cleanAuthor);
         }
 
         $queryParams = ['search' => $cleanQuery];
@@ -169,6 +256,9 @@ class DedalusService
         }
         $queryParams['resourceType'] = self::DEFAULT_RESOURCE_TYPE;
         $queryParams['options'] = self::DEFAULT_OPTIONS;
+        if ($cleanAuthor !== '') {
+            $queryParams['author'] = $cleanAuthor;
+        }
 
         $separator = str_contains($endpoint, '?') ? '&' : '?';
         $fullUrl = $endpoint.$separator.http_build_query($queryParams);
@@ -176,7 +266,7 @@ class DedalusService
         $cacheKey = 'dedalus_search_'.md5(json_encode([$endpoint, $queryParams]));
 
         if ($cacheRetention > 0 && Cache::has($cacheKey)) {
-            /** @var array{query: string, library: string, url: string, total: int, publications: list<array<string, mixed>>, error: string|null} $cached */
+            /** @var array{query: string, author: string, library: string, url: string, total: int, publications: list<array<string, mixed>>, error: string|null} $cached */
             $cached = Cache::get($cacheKey);
 
             return $cached;
@@ -193,6 +283,7 @@ class DedalusService
                 Log::warning('Dedalus search returned non-success status.', [
                     'status' => $response->status(),
                     'query' => $cleanQuery,
+                    'author' => $cleanAuthor,
                     'library' => $resolvedLibrary,
                 ]);
 
@@ -200,7 +291,8 @@ class DedalusService
                     $cleanQuery,
                     $resolvedLibrary,
                     $fullUrl,
-                    'Não foi possível consultar o acervo Dedalus no momento.'
+                    'Não foi possível consultar o acervo Dedalus no momento.',
+                    $cleanAuthor
                 );
             }
 
@@ -208,6 +300,7 @@ class DedalusService
             if (! is_array($payload) || ! isset($payload['publications']) || ! is_array($payload['publications'])) {
                 Log::warning('Dedalus search returned unexpected payload structure.', [
                     'query' => $cleanQuery,
+                    'author' => $cleanAuthor,
                     'library' => $resolvedLibrary,
                 ]);
 
@@ -215,7 +308,8 @@ class DedalusService
                     $cleanQuery,
                     $resolvedLibrary,
                     $fullUrl,
-                    'Resposta inválida recebida ao consultar o acervo Dedalus.'
+                    'Resposta inválida recebida ao consultar o acervo Dedalus.',
+                    $cleanAuthor
                 );
             }
 
@@ -228,6 +322,7 @@ class DedalusService
 
             $result = [
                 'query' => $cleanQuery,
+                'author' => $cleanAuthor,
                 'library' => $resolvedLibrary,
                 'url' => $fullUrl,
                 'total' => isset($payload['numberOfResultsTotal']) && is_numeric($payload['numberOfResultsTotal'])
@@ -247,6 +342,7 @@ class DedalusService
                 'exception' => $exception::class,
                 'message' => $exception->getMessage(),
                 'query' => $cleanQuery,
+                'author' => $cleanAuthor,
                 'library' => $resolvedLibrary,
             ]);
 
@@ -254,7 +350,8 @@ class DedalusService
                 $cleanQuery,
                 $resolvedLibrary,
                 $fullUrl,
-                'Não foi possível consultar o acervo Dedalus no momento.'
+                'Não foi possível consultar o acervo Dedalus no momento.',
+                $cleanAuthor
             );
         }
     }
@@ -333,6 +430,7 @@ class DedalusService
      *     idiom: string,
      *     mediaType: string,
      *     subjects: list<string>,
+     *     isbn: string,
      *     inHouse: int,
      *     locations: list<mixed>,
      *     coverUrl: string
@@ -369,10 +467,42 @@ class DedalusService
             'idiom' => trim((string) ($pub['idiom'] ?? '')),
             'mediaType' => trim((string) ($pub['mediaType'] ?? ($pub['ids01'] ?? ''))),
             'subjects' => $subjects,
+            'isbn' => $this->extractIsbn($pub),
             'inHouse' => (int) ($pub['inHouse'] ?? 0),
             'locations' => is_array($pub['locations'] ?? null) ? array_values($pub['locations']) : [],
             'coverUrl' => trim((string) ($pub['coverUrl'] ?? '')),
         ];
+    }
+
+    /**
+     * Extrai o ISBN da publicação a partir do campo direto `isbn` ou dos valores de `barCode` presentes em `locations`.
+     *
+     * Na API do Dedalus/Aleph, o ISBN de cada exemplar é registrado sob a propriedade `barCode` dos itens em `locations`.
+     *
+     * @param array<string, mixed> $pub Objeto bruto de publicação do Dedalus.
+     * @return string ISBN(s) normalizado(s) ou string vazia quando ausente.
+     */
+    private function extractIsbn(array $pub): string
+    {
+        if (isset($pub['isbn']) && is_scalar($pub['isbn']) && trim((string) $pub['isbn']) !== '') {
+            return trim((string) $pub['isbn']);
+        }
+
+        $isbns = [];
+        if (isset($pub['locations']) && is_array($pub['locations'])) {
+            foreach ($pub['locations'] as $location) {
+                if (! is_array($location)) {
+                    continue;
+                }
+
+                $barCode = trim((string) ($location['barCode'] ?? ''));
+                if ($barCode !== '' && ! in_array($barCode, $isbns, true)) {
+                    $isbns[] = $barCode;
+                }
+            }
+        }
+
+        return implode(', ', $isbns);
     }
 
     /**
@@ -382,8 +512,10 @@ class DedalusService
      * @param string $library Biblioteca alvo.
      * @param string $url URL completa da consulta.
      * @param string|null $error Mensagem de erro amigável, se houver.
+     * @param string $author Autor(es) pesquisado(s).
      * @return array{
      *     query: string,
+     *     author: string,
      *     library: string,
      *     url: string,
      *     total: int,
@@ -391,10 +523,11 @@ class DedalusService
      *     error: string|null
      * } Estrutura vazia padronizada.
      */
-    private function emptyResult(string $query, string $library, string $url, ?string $error = null): array
+    private function emptyResult(string $query, string $library, string $url, ?string $error = null, string $author = ''): array
     {
         return [
             'query' => $query,
+            'author' => $author,
             'library' => $library,
             'url' => $url,
             'total' => 0,

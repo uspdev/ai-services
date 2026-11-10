@@ -110,7 +110,10 @@ class BibliografiaController extends Controller
     /**
      * Consulta o acervo Dedalus sob demanda para permitir refinar o termo de busca na interface.
      *
-     * @param Request $request Requisição GET com o parâmetro `search` e opcionalmente `library`.
+     * Permite refinar a consulta combinando o termo principal (título da obra) com filtro
+     * complementar por autor(es) e sigla da unidade bibliotecária.
+     *
+     * @param Request $request Requisição GET com `search` (obrigatório), `author` (opcional) e `library` (opcional).
      * @return JsonResponse Resultado normalizado da busca no Dedalus.
      * @throws \Illuminate\Validation\ValidationException Se o parâmetro `search` não for informado.
      */
@@ -118,12 +121,14 @@ class BibliografiaController extends Controller
     {
         $validated = $request->validate([
             'search' => ['required', 'string', 'max:500'],
+            'author' => ['nullable', 'string', 'max:500'],
             'library' => ['nullable', 'string', 'max:50'],
         ]);
 
         $result = $this->dedalusService->search(
             $validated['search'],
             $validated['library'] ?? null,
+            $validated['author'] ?? null,
         );
 
         return response()->json([
