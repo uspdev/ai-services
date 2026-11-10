@@ -80,6 +80,8 @@ class TextoAgentTest extends TestCase
             ['role' => 'user', 'content' => $input],
         ], $request['messages']);
         $this->assertSame('json_schema', $request['response_format']['type']);
+        // Aplica ao novo serviço a mesma garantia de saída estruturada dos outros agentes.
+        $this->assertTrue($request['response_format']['json_schema']['strict']);
 
         $schema = $request['response_format']['json_schema']['schema'];
         $this->assertSame(

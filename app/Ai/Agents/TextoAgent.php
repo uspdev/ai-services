@@ -5,6 +5,7 @@ namespace App\Ai\Agents;
 use App\Models\AiPrompt;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\JsonSchema\Types\Type;
+use Laravel\Ai\Attributes\Strict;
 use Laravel\Ai\Contracts\Agent;
 use Laravel\Ai\Contracts\HasStructuredOutput;
 use Laravel\Ai\Promptable;
@@ -14,7 +15,9 @@ use Laravel\Ai\Promptable;
  *
  * O estilo/formato desejado é informado no construtor e interpolado nas instruções
  * de sistema; o rascunho (e eventual contexto adicional) é enviado a `prompt()`.
+ * O modo estrito exige o cumprimento do schema no provider, como nos demais serviços.
  */
+#[Strict]
 class TextoAgent implements Agent, HasStructuredOutput
 {
     /** @var string Identificador do serviço de elaboração de textos na tabela `ai_prompts`. */

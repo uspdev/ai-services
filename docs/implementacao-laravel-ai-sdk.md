@@ -28,7 +28,9 @@ Para os detalhes específicos de cada serviço, consulte:
 
 ## 1. Visão geral e dependências
 
-A integração utiliza `laravel/ai` (`^1.2@stable`) em [composer.json](../composer.json) sobre PHP `^8.3` e Laravel 12.
+A integração utiliza `laravel/ai` (`^1.2@stable`) em [composer.json](../composer.json) sobre PHP `^8.3` e Laravel 13.
+
+A atualização usa Tinker 3 e PHPUnit 12. O middleware local [VerifyCsrfToken](../app/Http/Middleware/VerifyCsrfToken.php) e a configuração do Sanctum usam `PreventRequestForgery`. A dependência `rap2hpoutre/laravel-log-viewer` mantém o alias `3.0.0 as 2.5.0` para compatibilidade com `uspdev/laravel-tools` e seus links criptografados; as views do pacote não são sobrescritas.
 
 Cada requisição `POST` válida executa um fluxo síncrono: a aplicação valida os parâmetros de entrada, resolve o agente correspondente, busca a versão ativa do prompt no banco de dados (ou utiliza o template padrão em código como fallback), e aguarda a resposta estruturada do gateway ou uma falha tratada. Uma entrada já processada sob a mesma versão de prompt, schema e modelo é atendida diretamente pelo cache.
 
@@ -46,7 +48,7 @@ flowchart TD
     L --> M[Modelo configurado]
     M --> L
     L --> SDK
-    SDK --> V[Validações do agente e do serviço]
+    SDK --> V[Correspondência das listas e término da geração]
     V -->|Resultado válido| W[Gravação em cache quando habilitado]
     W --> D
     V -->|Falha| E[Trait HandlesAiFailures]
@@ -64,7 +66,9 @@ Os agentes implementam `Laravel\Ai\Contracts\Agent` e `HasStructuredOutput`, sem
 | --- | --- |
 | [composer.json](../composer.json) e [composer.lock](../composer.lock) | Declarar a dependência do SDK e registrar as versões instaladas. |
 | [config/ai.php](../config/ai.php) | Selecionar provider, driver, URL, chave e modelo de texto. |
-| [config/aiService.php](../config/aiService.php) | Definir a retenção do cache de respostas (`AI_CACHE_RETENTION`). |
+| [config/aiService.php](../config/aiService.php) | Definir a retenção do cache de respostas e o período dos logs de alterações de prompts. |
+| [config/logging.php](../config/logging.php) | Configurar os canais gerais e o log opcional das chamadas de IA. |
+| [app/Services/AiConversationLogger.php](../app/Services/AiConversationLogger.php) e [app/Logging/AiConversationFormatter.php](../app/Logging/AiConversationFormatter.php) | Correlacionar e apresentar entrada, tráfego HTTP, resultados, cache e falhas de IA. |
 | [app/Enums/PromptStatus.php](../app/Enums/PromptStatus.php) | Enum com o ciclo de vida das versões de prompt (`draft`, `active`, `archived`). |
 | [app/Models/AiPrompt.php](../app/Models/AiPrompt.php) | Model Eloquent agnóstico para persistência, versionamento, cache e interpolação de prompts. |
 | [database/migrations/2026_10_19_000000_create_ai_prompts_table.php](../database/migrations/2026_10_19_000000_create_ai_prompts_table.php) | Criar a tabela única `ai_prompts` com controle de `slug`, `version` e `status`. |
@@ -72,7 +76,7 @@ Os agentes implementam `Laravel\Ai\Contracts\Agent` e `HasStructuredOutput`, sem
 | [app/Ai/Agents/BibliografiaAgent.php](../app/Ai/Agents/BibliografiaAgent.php) | Agente de bibliografia: normas suportadas, template padrão, schema e validação das quatro listas. |
 | [app/Ai/Agents/EmentaAgent.php](../app/Ai/Agents/EmentaAgent.php) | Agente de ementa: template padrão e schema de revisão bilíngue. |
 | [app/Ai/Agents/TextoAgent.php](../app/Ai/Agents/TextoAgent.php) | Agente de elaboração de textos: estilos suportados, template padrão e schema de perguntas/texto elaborado. |
-| [app/Services/AiService.php](../app/Services/AiService.php) | Executar agentes estruturados, validar resultados, administrar cache e normalizar estatísticas. |
+| [app/Services/AiService.php](../app/Services/AiService.php) | Executar agentes estruturados, conferir o término, registrar chamadas, administrar cache e normalizar estatísticas. |
 | [app/Traits/HandlesAiFailures.php](../app/Traits/HandlesAiFailures.php) | Trait compartilhada entre controllers para converter exceções da IA em respostas web/JSON seguras. |
 | [app/Http/Controllers/BibliografiaController.php](../app/Http/Controllers/BibliografiaController.php) | Validar e atender requisições de `/bibliografia` (`bibliografia.index`). |
 | [app/Http/Controllers/EmentaController.php](../app/Http/Controllers/EmentaController.php) | Validar e atender requisições de `/ementa` (`ementa.index`). |
@@ -95,6 +99,7 @@ LITELLM_URL=http://localhost:4000
 LITELLM_API_KEY=
 LITELLM_MODEL=gemini-flash
 AI_CACHE_RETENTION=604800
+AI_CONVERSATION_LOG_ENABLED=${APP_DEBUG}
 ```
 
 | Variável | Configuração consumida | Efeito |
@@ -104,6 +109,7 @@ AI_CACHE_RETENTION=604800
 | `LITELLM_API_KEY` | `ai.providers.litellm.key` | Autentica a chamada ao gateway. |
 | `LITELLM_MODEL` | `ai.providers.litellm.models.text.default` | Define o alias enviado no campo `model`. |
 | `AI_CACHE_RETENTION` | `aiService.cacheRetention` | Define, em segundos, a retenção dos resultados válidos. |
+| `AI_CONVERSATION_LOG_ENABLED` | `logging.ai_conversations_enabled` | Habilita o registro completo das chamadas feitas pelo serviço. |
 | `CACHE_DRIVER` | `cache.default` | Escolhe o armazenamento do cache de respostas e de prompts. |
 
 ### 3.2 Normalização da URL
@@ -162,6 +168,8 @@ Os agentes resolvem suas instruções por meio de `AiPrompt::resolve($slug, $fal
 2. Se `$version` for `null`, busca a versão `active` no banco utilizando o cache `ai_prompt:{slug}:active`.
 3. Caso o banco de dados ainda não esteja migrado ou não possua versão ativa para o `slug`, utiliza o `$fallbackTemplate` fornecido pelo próprio agente (`BibliografiaAgent::defaultTemplate()`, `EmentaAgent::defaultTemplate()` ou `TextoAgent::defaultTemplate()`).
 
+Os templates padrão de bibliografia e ementa contêm as regras de conteúdo, sem repetir exemplos de JSON ou exigências de serialização. O formato é definido pelos métodos `schema()` e enviado pelo SDK. A resolução de versões não altera os textos já salvos no banco; novos registros e a restauração do padrão usam os templates simplificados.
+
 ### 4.4 Interface web de gerenciamento (`/settings/prompts`)
 
 Usuários com a permissão `can:manager` dispõem do menu **Settings -> Prompts de IA** (`/settings/prompts`), atendido por [`AiPromptController`](../app/Http/Controllers/AiPromptController.php):
@@ -182,7 +190,7 @@ Usuários com a permissão `can:manager` dispõem do menu **Settings -> Prompts 
 
 A assinatura pública é `submit(Agent $agent, string $input): array`. Em tempo de execução, o serviço exige que o agente implemente `HasStructuredOutput`.
 
-O retorno contém somente os dados estruturados validados. Os metadados da execução ficam disponíveis via `statistics(): ?array`.
+O retorno contém os dados estruturados recebidos pelo agente. Os metadados da execução ficam disponíveis via `statistics(): ?array`.
 
 ### 5.2 Fluxo de execução e cache
 
@@ -204,7 +212,7 @@ sequenceDiagram
         L-->>SDK: Conteúdo, uso e metadados
         SDK-->>A: StructuredAgentResponse
         A-->>S: Resposta estruturada
-        S->>S: Conferir término (FinishReason::Stop) e validar dados
+        S->>S: Conferir término (FinishReason::Stop)
         S->>K: Armazenar resultado e estatísticas
     else Resultado disponível
         K-->>S: Registro validado da geração anterior
@@ -223,7 +231,8 @@ Antes de retornar ou armazenar em cache, `AiService` verifica:
 
 1. Que a resposta é uma instância de `StructuredAgentResponse`.
 2. Que o motivo de término (`finishReason`) é `FinishReason::Stop`. Respostas truncadas ou interrompidas são rejeitadas.
-3. Que todos os campos obrigatórios, tipos (`object`, `array`, `string`, `integer`), limites (`minimum`, `maximum`), `enum` e `additionalProperties: false` definidos no schema do agente foram rigorosamente respeitados (`validateValue()`).
+
+Os três agentes usam `#[Strict]`: o SDK envia `response_format.json_schema.strict = true` e o provider deve cumprir o schema. O serviço não repete uma validação recursiva dos campos retornados. Na bibliografia, o agente também verifica localmente se as quatro listas são válidas e têm o mesmo tamanho; essa regra entre campos não é expressa pelo JSON Schema.
 
 ---
 
@@ -257,6 +266,14 @@ Como o texto resolvido de `$agent->instructions()` faz parte do hash, **ativar u
 | `cached_at` | Data da geração original em formato ISO 8601. |
 | `duration` | Tempo da chamada atual em segundos (duas casas decimais). |
 | `cached` | `true` quando atendido pelo cache; `false` quando houve geração no modelo. |
+
+---
+
+### 8.1 Registro das chamadas de IA
+
+Com `AI_CONVERSATION_LOG_ENABLED=true`, o serviço compartilha um [AiConversationLogger](../app/Services/AiConversationLogger.php) com os listeners HTTP registrados pelo [AppServiceProvider](../app/Providers/AppServiceProvider.php). Cada execução recebe um `request_id` que relaciona `ai.request`, `ai.http.request`, `ai.http.response`, `ai.result`, `ai.cache_hit` e falhas. O contexto é encerrado em `finally`, inclusive após exceções. Chamadas diretas ao agente não participam dessa captura.
+
+O canal grava em `storage/logs/ai-conversations.log` com cabeçalho compatível com o Log Viewer, textos em várias linhas e schema indentado. Os registros incluem os textos completos de entrada e saída, sem cabeçalhos de autenticação. No acerto de cache não há novos eventos HTTP. A configuração fica em [config/logging.php](../config/logging.php); sem a variável de ambiente, a captura é desativada. O histórico administrativo de prompts continua separado em `storage/logs/aiprompt.log`.
 
 ---
 
@@ -299,7 +316,9 @@ As views utilizam partials compartilhados em `resources/views/partials/`:
 | [BibliografiaAgentTest.php](../tests/Feature/BibliografiaAgentTest.php) | Contrato do `BibliografiaAgent`, interpolação de normas e validação de correspondência das quatro listas. |
 | [EmentaAgentTest.php](../tests/Feature/EmentaAgentTest.php) | Contrato do `EmentaAgent`, schema bilíngue e estados do inglês (`presente`, `parcial`, `ausente`). |
 | [TextoAgentTest.php](../tests/Feature/TextoAgentTest.php) | Contrato do `TextoAgent`, detecção automática de estilo, fluxo de esclarecimentos e rota `/texto`. |
-| [AiServiceTest.php](../tests/Feature/AiServiceTest.php) | Execução pelo `AiService`, timeout, retenção e isolamento de cache, estatísticas e rejeição de respostas inválidas. |
+| [AiServiceTest.php](../tests/Feature/AiServiceTest.php) | Execução pelo `AiService`, timeout, retenção e isolamento de cache, estatísticas e rejeição de gerações incompletas. |
+| [AiConversationLoggingTest.php](../tests/Feature/AiConversationLoggingTest.php) | Arquivo de log, mensagens, payload HTTP, respostas brutas, cache e falhas com HTTP simulado. |
+| [Laravel13CompatibilityTest.php](../tests/Feature/Laravel13CompatibilityTest.php) | Proteção de origem/CSRF nos três serviços e seleção, download e autorização dos logs. |
 | [AiControllerTest.php](../tests/Feature/AiControllerTest.php) | Rotas `bibliografia.index` e `ementa.index`, autenticação, validação, tratamento de falhas e respostas web/JSON. |
 
 Comandos de verificação:

@@ -6,6 +6,7 @@ use App\Models\AiPrompt;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\JsonSchema\Types\Type;
 use Laravel\Ai\Approvals\Decisions;
+use Laravel\Ai\Attributes\Strict;
 use Laravel\Ai\Contracts\Agent;
 use Laravel\Ai\Contracts\AgentInput;
 use Laravel\Ai\Contracts\HasStructuredOutput;
@@ -21,6 +22,7 @@ use RuntimeException;
  * A norma é fornecida pelo chamador; o texto a revisar é enviado a prompt().
  * O agente executa chamadas independentes, sem contexto de conversa ou tools.
  */
+#[Strict]
 class BibliografiaAgent implements Agent, HasStructuredOutput
 {
     /** @var string Identificador do serviço de bibliografia na tabela `ai_prompts`. */
@@ -86,20 +88,17 @@ class BibliografiaAgent implements Agent, HasStructuredOutput
     /**
      * Retorna o template padrão (v1) de instruções de bibliografia para seeder e fallback.
      *
-     * @return string Template do system prompt de bibliografia com placeholders `{$standard}`.
+     * @return string Regras de conteúdo com placeholders `{$standard}`, sem duplicar o JSON Schema.
      */
     public static function defaultTemplate(): string
     {
         return <<<'PROMPT'
 You are a precise bibliographic formatting assistant following the {$standard} standard
-OUTPUT FORMAT RULE:
-You MUST respond STRICTLY with a valid JSON object. Do NOT include markdown code block wrappers (like ```json). The JSON must have exactly four root keys:
-1. "referencias": An array of strings containing ONLY the corrected, standardized references.
-2. "explicacoes": An array of strings explaining ONLY the specific adjustments, corrections, or missing fields. Do NOT include generic introductory phrases.
-3. "busca_dedalus": An array of objects, one for each reference, optimized for library catalog lookup with two keys:
-   - "autor": The primary author's name cleaned (e.g., "FARRET, F. A." or "ANDERSEN, James M."). If published by an organization, use the entity name.
-   - "titulo": The full main title including subtitle if present, excluding edition numbers or 'In:' prefixes.
-4. "confiancas": An array of integers from 0 to 100, representing the quality and completeness of the ORIGINAL input reference. High values (e.g. 90-100) indicate the input was nearly complete and required minimal changes. Low values (e.g. 0-50) indicate the original input was poor, highly incomplete, or required heavy modifications.
+CONTENT GUIDANCE:
+- "referencias": Provide ONLY the corrected, standardized references.
+- "explicacoes": Explain ONLY the specific adjustments, corrections, or missing fields. Do NOT include generic introductory phrases.
+- "busca_dedalus": Prepare catalog lookup information for each reference. For "autor", use the cleaned primary author's name (e.g., "FARRET, F. A." or "ANDERSEN, James M."); if published by an organization, use the entity name. For "titulo", use the full main title including subtitle if present, excluding edition numbers or 'In:' prefixes.
+- "confiancas": Evaluate the quality and completeness of the ORIGINAL input reference. High values (e.g. 90-100) indicate the input was nearly complete and required minimal changes. Low values (e.g. 0-50) indicate the original input was poor, highly incomplete, or required heavy modifications.
 
 FORMATTING RULES:
 - EXPLICIT RULES PRECEDENCE: Strictly adhere to all explicit formatting rules listed below. Always prioritize these explicit instructions over general knowledge or default guidelines whenever a conflict or ambiguity arises.
@@ -131,6 +130,7 @@ PROMPT;
      */
     public function instructions(): string
     {
+        // O banco seleciona a versão; o SDK define o formato JSON por meio de schema().
         return AiPrompt::resolve(
             self::SLUG,
             self::defaultTemplate(),

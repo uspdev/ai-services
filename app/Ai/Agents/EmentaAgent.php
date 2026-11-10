@@ -5,6 +5,7 @@ namespace App\Ai\Agents;
 use App\Models\AiPrompt;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\JsonSchema\Types\Type;
+use Laravel\Ai\Attributes\Strict;
 use Laravel\Ai\Contracts\Agent;
 use Laravel\Ai\Contracts\HasStructuredOutput;
 use Laravel\Ai\Promptable;
@@ -15,6 +16,7 @@ use Laravel\Ai\Promptable;
  * O texto a revisar é enviado a prompt(). Cada chamada é independente, sem
  * contexto de conversa, tools ou parâmetros adicionais de disciplina e área.
  */
+#[Strict]
 class EmentaAgent implements Agent, HasStructuredOutput
 {
     /** @var string Identificador do serviço de ementa na tabela `ai_prompts`. */
@@ -35,7 +37,7 @@ class EmentaAgent implements Agent, HasStructuredOutput
     /**
      * Retorna o template padrão (v1) de instruções de revisão de ementas para seeder e fallback.
      *
-     * @return string Template do system prompt de revisão de ementas.
+     * @return string Regras acadêmicas e de tradução, sem repetir a estrutura JSON definida em schema().
      */
     public static function defaultTemplate(): string
     {
@@ -83,7 +85,7 @@ Portuguese (`pt`):
 English (`en`):
 
 - `status`: `presente` = complete; `parcial` = incomplete or missing parts; `ausente` = no meaningful English text.
-- Assess spelling, grammar, punctuation, academic tone, clarity, PT equivalence, and field-specific terminology.
+- Assess spelling, grammar, punctuation, academic tone, clarity, PT equivalence, and field-specific terminology; explain when English is absent.
 
 3. REVISION
 
@@ -91,42 +93,6 @@ Provide final polished versions in Portuguese and English for all three sections
 
 Use a neutral, professional, concise, and evidence-based academic tone.
 
-OUTPUT:
-Return ONLY a valid JSON object. No Markdown or text outside the JSON. Follow this exact schema:
-
-{
-  "score": {
-    "valor": 0,
-    "justificativa": "1–2 sentence executive summary justifying the score."
-  },
-  "explicacoes": {
-    "pt": {
-      "gramatica_acentuacao_pontuacao": "Portuguese grammar, spelling, agreement, and punctuation analysis.",
-      "redacao_academica_clareza_pedagogica": "Portuguese academic style, clarity, redundancy, conciseness, and parallelism analysis.",
-      "terminologia_tecnica": "Portuguese technical terminology and conceptual precision analysis."
-    },
-    "en": {
-      "status": "presente | parcial | ausente",
-      "gramatica_acentuacao_pontuacao": "English spelling, grammar, and punctuation analysis, or explanation if absent.",
-      "redacao_academica_clareza_pedagogica": "English academic tone, clarity, and equivalence with Portuguese.",
-      "terminologia_tecnica": "English technical terminology and field-specific vocabulary analysis."
-    }
-  },
-  "texto_revisado": {
-    "ementa": {
-      "pt": "Final revised Portuguese text.",
-      "en": "Final revised or translated English text."
-    },
-    "objetivos": {
-      "pt": "Final revised Portuguese text.",
-      "en": "Final revised or translated English text."
-    },
-    "conteudo_programatico": {
-      "pt": "Final revised Portuguese text.",
-      "en": "Final revised or translated English text."
-    }
-  }
-}
 PROMPT;
     }
 
@@ -137,6 +103,7 @@ PROMPT;
      */
     public function instructions(): string
     {
+        // O banco seleciona a versão; o SDK define o formato JSON por meio de schema().
         return AiPrompt::resolve(
             self::SLUG,
             self::defaultTemplate(),

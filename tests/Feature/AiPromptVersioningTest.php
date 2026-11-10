@@ -7,9 +7,11 @@ use App\Ai\Agents\EmentaAgent;
 use App\Ai\Agents\TextoAgent;
 use App\Enums\PromptStatus;
 use App\Models\AiPrompt;
+use App\Services\AiService;
 use Database\Seeders\AiPromptSeeder;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
 use Tests\TestCase;
@@ -194,6 +196,66 @@ class AiPromptVersioningTest extends TestCase
         // Após ativar v2, a lista de normas reflete os metadados da versão ativa.
         $v2->activate();
         $this->assertSame(['ABNT NBR 6023:2025', 'Chicago 17th Edition'], BibliografiaAgent::standards());
+    }
+
+    /**
+     * Confere que ativar uma versão troca o prompt HTTP e o cache de respostas,
+     * preservando o modo estrito e as instruções simplificadas do agente.
+     *
+     * @return void
+     */
+    public function test_active_prompt_versions_preserve_strict_requests_and_isolate_response_cache(): void
+    {
+        $this->seed(AiPromptSeeder::class);
+        config([
+            'ai.default' => 'litellm',
+            'ai.providers.litellm' => [
+                'driver' => 'openai-compatible',
+                'url' => 'https://litellm.example.com/v1',
+                'key' => 'sdk-test-key',
+                'models' => ['text' => ['default' => 'sdk-test-model']],
+            ],
+            'aiService.cacheRetention' => 60,
+        ]);
+        Http::preventStrayRequests();
+        $result = [
+            'referencias' => ['Referência revisada.'],
+            'explicacoes' => ['Pontuação ajustada.'],
+            'busca_dedalus' => [['autor' => 'Autor', 'titulo' => 'Título']],
+            'confiancas' => [90],
+        ];
+        Http::fake(['*' => Http::response([
+            'choices' => [[
+                'finish_reason' => 'stop',
+                'message' => ['role' => 'assistant', 'content' => json_encode($result)],
+            ]],
+        ])]);
+
+        $service = new AiService;
+        $v1 = AiPrompt::findActive('bibliografia');
+        $this->assertStringNotContainsString('OUTPUT FORMAT RULE:', $v1->system_prompt);
+
+        // A mesma entrada na mesma versão reutiliza o resultado sem outra chamada HTTP.
+        $this->assertSame($result, $service->submit(new BibliografiaAgent('APA 7th Edition'), 'Entrada original.'));
+        $this->assertFalse($service->statistics()['cached']);
+        $this->assertSame($result, $service->submit(new BibliografiaAgent('APA 7th Edition'), 'Entrada original.'));
+        $this->assertTrue($service->statistics()['cached']);
+        Http::assertSentCount(1);
+
+        // A ativação invalida o prompt ativo; seu conteúdo separa o cache das gerações.
+        $v2 = $v1->createNextDraft('Acrescenta orientação de revisão.');
+        $v2->update(['system_prompt' => $v1->system_prompt."\nReview every reference carefully."]);
+        $v2->activate();
+        $this->assertSame($result, $service->submit(new BibliografiaAgent('APA 7th Edition'), 'Entrada original.'));
+        $this->assertFalse($service->statistics()['cached']);
+        Http::assertSentCount(2);
+
+        foreach (Http::recorded() as $index => [$request]) {
+            $version = $index === 0 ? $v1 : $v2;
+            $this->assertSame($version->interpolate(['standard' => 'APA 7th Edition']), $request['messages'][0]['content']);
+            $this->assertSame('Entrada original.', $request['messages'][1]['content']);
+            $this->assertTrue($request['response_format']['json_schema']['strict']);
+        }
     }
 
     /**
